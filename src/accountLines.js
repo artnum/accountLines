@@ -178,7 +178,7 @@ class RPNEvaluator {
     }
 
     static getVariables (expression) {
-        return expression.match(/(\$[a-zA-Z0-9_\-\.\*]+)/g)
+        return expression.match(/(\$[a-zA-Z0-9_\-\.\*]+)/g) || []
     }
 
     static setVariables (expression, doc = document) {
@@ -196,8 +196,7 @@ class RPNEvaluator {
                     nodes = doc.querySelectorAll(`[name="${parts[0]}"] [name="${parts[1]}"]`)
                 }
             }
-            if (!nodes) {
-                expression = expression.replace(match, 0)
+            if (!nodes || nodes.length === 0) {
                 return 
             }
             const values = []
@@ -221,6 +220,7 @@ class RPNEvaluator {
 export class AccountLines extends HTMLElement {
     constructor() {
         self = super()
+        this.posNode = null
         this.offset = 0
         this.values = {}
         this.lines = []
@@ -233,7 +233,6 @@ export class AccountLines extends HTMLElement {
         this.groupIndexCount = 0
         this.tabIndexCount = 0
     }
-
 
     setValue (name, value) {
         this.values[name] = value
@@ -358,9 +357,13 @@ export class AccountLines extends HTMLElement {
         this.addEmptyLine()    
     }
 
-    addEmptyLine () {
+    addLine (line) {
+        let notEmpty = true
         const domNode = document.createElement('div')
-        domNode.dataset.used = false
+        if (Object.keys(line).length <= 0) {
+            domNode.dataset.used = false
+            notEmpty = false
+        }
         let position = this.offset + this.lines.length + 1
         if (this.inGroup !== 0) {
             domNode.classList.add('account-line__grouped')
@@ -369,13 +372,47 @@ export class AccountLines extends HTMLElement {
             position = this.linesInGroup[this.inGroup - 1].length + 1
         }
 
-        domNode.innerHTML = `
-            <span class="account-line__position">${String(position).padStart(4, '0')}</span>`
+        let posNode
+        if (this.posNode) {
+            posNode = this.posNode.cloneNode(true)
+            posNode.innerHTML = String(position).padStart(4, '0')
+        } else {
+            posNode = document.createElement('span')
+            posNode.innerHTML = String(position).padStart(4, '0')
+        }
+        posNode.setAttribute('tabindex', -1)
+        posNode.setAttribute('readonly', true)
+        posNode.classList.add('account-line__position')
+
+        domNode.appendChild(posNode)
+        if (line._readonly) {
+            domNode.setAttribute('readonly', true)
+        }
 
         this.nodes.forEach(node => {
             const newNode = node.cloneNode(true)
             if (this.inGroup !== 0 && newNode.dataset.nameInGroup) {
                 newNode.name = newNode.dataset.nameInGroup.replace(/\%/g, this.inGroup)
+            }
+            if (newNode.name && line[newNode.name]) {
+                newNode.value = line[newNode.name]
+            }
+            if (line._readonly) {
+                switch(newNode.tagName) {
+                    default: 
+                    case 'INPUT':
+                        newNode.setAttribute('readonly', true)
+                        break
+                    case 'SELECT':
+                        newNode.querySelectorAll('option').forEach(option => {
+                            if (option.value === newNode.value) {
+                                option.setAttribute('selected', true)
+                            } else {
+                                option.setAttribute('disabled', true)
+                            }
+                        })
+                        break
+                }
             }
             if (!newNode.dataset.expression) {
                 newNode.setAttribute('tabindex', ++this.tabIndexCount)
@@ -425,6 +462,15 @@ export class AccountLines extends HTMLElement {
             const groupTail = this.querySelector(`.account-line__group-tail[data-group-id="${this.inGroup}"]`)
             groupTail.parentNode.insertBefore(domNode, groupTail)
         }
+
+        if (notEmpty) {
+            this.update()
+            this.dispatchEvent(new CustomEvent('update'))
+        }
+    }
+
+    addEmptyLine () {
+        return this.addLine({})
     }
 
     update () {
@@ -441,6 +487,7 @@ export class AccountLines extends HTMLElement {
             group.forEach((line, index) => {
                 const inputs = line.querySelectorAll('[data-expression]')
                 inputs.forEach(input => {
+                    if (input.dataset.deleted === 'true') { input.value = 0;  return }
                     input.value = RPNEvaluator.evaluate(
                         RPNEvaluator.setVariables(input.dataset.expression, line)
                     )
@@ -450,6 +497,7 @@ export class AccountLines extends HTMLElement {
         this.lines.forEach(line => {
             const inputs = line.querySelectorAll('[data-expression]')
             inputs.forEach(input => {
+                if (input.dataset.deleted === 'true') { input.value = 0;  return }
                 input.value = RPNEvaluator.evaluate(
                     RPNEvaluator.setVariables(input.dataset.expression, line)
                 )
@@ -460,14 +508,28 @@ export class AccountLines extends HTMLElement {
     removeLine (index, force = false) {
         index = parseInt(index)
         if (isNaN(index)) { return }
+        
+        const node = this.lines[index]
+        if (node.getAttribute('readonly') === 'true') {
+            let deleted = true
+            if (node.dataset.deleted === 'true') { deleted = false }
+            node.dataset.deleted = deleted
+            node.classList.toggle('account-line__deleted')
+            node.querySelectorAll('input, textarea, select').forEach(input => {
+                input.dataset.deleted = deleted
+            })
+            return 
+        }
+
         if (this.lines.length <= 1 && !force) { return }
-        const node = this.lines.splice(index, 1)
-        node[0].remove()
-        if (node[0].dataset.groupId) {
-            this.linesInGroup[node[0].dataset.groupId - 1].forEach((line, index) => {
+
+        this.lines.splice(index, 1)
+        node.remove()
+        if (node.dataset.groupId) {
+            this.linesInGroup[node.dataset.groupId - 1].forEach((line, index) => {
                 line.remove()
             })
-            this.linesInGroup[node[0].dataset.groupId - 1] = []
+            this.linesInGroup[node.dataset.groupId - 1] = []
         }
         this.lines.forEach((line, index) => {
             line.querySelector('.account-line__position').innerText = String(this.offset + index + 1).padStart(4, '0')
@@ -509,6 +571,12 @@ export class AccountLines extends HTMLElement {
         this.dispatchEvent(new CustomEvent('update'))
     }
 
+    loadLines (lines) {
+        lines.forEach(line => {
+            this.addLine(line)
+        })
+    }
+
     connectedCallback() {
         const headNode = document.createElement('div')
 
@@ -523,7 +591,6 @@ export class AccountLines extends HTMLElement {
             }
         })
 
-
         const headDefinition = this.querySelector('account-head-definition')
         headNode.classList.add('account-line__head')
         Array.from(headDefinition.children).forEach(node => {
@@ -534,10 +601,13 @@ export class AccountLines extends HTMLElement {
         headNode.appendChild(document.createElement('legend'))
         headDefinition.remove()
 
-
         const lineDefinition = this.querySelector('account-line-definition')
         Array.from(lineDefinition.children).forEach(node => {
             node.remove()
+            if (node.getAttribute('type') === 'position') {
+                this.posNode = node
+                return
+            }
             this.nodes.push(node)
         })
         lineDefinition.remove()
@@ -562,13 +632,22 @@ export class AccountLines extends HTMLElement {
             })
         }
 
-        this.addEmptyLine()
+        const myName = this.getAttribute('name')
+        if (myName) {
+            const node = document.querySelector(`[for="${myName}"]`)
+            if (node) {
+                node.addEventListener('update', e => {
+                    this.update()
+                })
+            }
+        }
     }
 }
 
 class AccountSummary extends HTMLElement {
     constructor () {
         super()
+        this.for = null
     }
 
     update () {
@@ -604,8 +683,10 @@ class AccountSummary extends HTMLElement {
             node.next.forEach(next => {
                 traverseGraph(next, visited, recursionStack)
             })
+            let expression = RPNEvaluator.setVariables(node.dom.dataset.expression, this)
+            if (this.for) { expression = RPNEvaluator.setVariables(expression, this.for) }
             node.value = RPNEvaluator.evaluate(
-                RPNEvaluator.setVariables(node.dom.dataset.expression)
+                expression
             )
             node.dom.dataset.value = node.value
         }
@@ -614,13 +695,22 @@ class AccountSummary extends HTMLElement {
     }
 
     connectedCallback () {
+        const forNode = this.getAttribute('for')
+        if (forNode) {
+            const node = document.querySelector(`[name="${forNode}"]`)
+            if (node) {
+                this.for = node
+                node.addEventListener('update', e => {
+                    this.update()
+                })
+            }
+        }
         this.querySelectorAll('[name]').forEach(node => {
             node.addEventListener('change', e => { 
                 this.update() 
                 this.dispatchEvent(new CustomEvent('update'))
             })
         })
-
     }
 }
 
