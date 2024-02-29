@@ -216,6 +216,8 @@ class RPNEvaluator {
     }
 }
 
+/* TODO : group lines
+ */
 export class AccountLines extends HTMLElement {
     constructor() {
         self = super()
@@ -257,7 +259,6 @@ export class AccountLines extends HTMLElement {
                 if (input.name) {
                     const type = input.getAttribute('type')
                     const mandatory = input.getAttribute('mandatory') !== null
-                    console.log(mandatory)
                     switch (type) {
                         default:
                         case 'text':
@@ -289,12 +290,7 @@ export class AccountLines extends HTMLElement {
         return values.sort((a, b) => a.position - b.position)
     }
 
-    normalize () {
-        // TODO: remove empty lines
-    }
-
     addGroupTail () {
-        console.log('addGroupTail')
         const groupTail = document.createElement('div')
         groupTail.dataset.groupId = this.inGroup
         groupTail.classList.add(`account-line__group-tail`)
@@ -319,8 +315,6 @@ export class AccountLines extends HTMLElement {
     }
 
     addNewGroup () {
-        console.log('addNewGroup    ')
-        //this.removeLine(this.lines.length - 1, true)
         this.groupIndexCount++
         this.inGroup = this.groupIndexCount
 
@@ -366,9 +360,6 @@ export class AccountLines extends HTMLElement {
 
     addEmptyLine () {
         const domNode = document.createElement('div')
-        console.trace('addEmptyLine')
-        console.log('addEmptyLine', this.inGroup, domNode)
-
         domNode.dataset.used = false
         let position = this.offset + this.lines.length + 1
         if (this.inGroup !== 0) {
@@ -501,7 +492,6 @@ export class AccountLines extends HTMLElement {
         if (!parent) { return }
         parent.dataset.used = true
         let newLine = false
-        console.log(parent)
         if (parent.dataset.groupId) {
             this.inGroup = parseInt(parent.dataset.groupId)
             if (this.linesInGroup[this.inGroup - 1] === undefined || this.linesInGroup[this.inGroup - 1][this.linesInGroup[this.inGroup - 1].length - 1].dataset.used === 'true') {
@@ -513,7 +503,6 @@ export class AccountLines extends HTMLElement {
                 newLine = true
             }
         }
-        console.log(newLine, this.lines[this.lines.length - 1].dataset.used)
         if (newLine) { this.addEmptyLine() }
     
         this.update()
@@ -526,7 +515,6 @@ export class AccountLines extends HTMLElement {
         this.addEventListener('keyup', e => this.handleNewLineEvents(e))
         this.addEventListener('change', e => this.handleNewLineEvents(e))
         this.addEventListener('focus', e => {
-            console.log(e.target)
             switch(e.target.tagName) {
                 case 'INPUT':
                 case 'TEXTAREA':
