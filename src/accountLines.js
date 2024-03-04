@@ -112,6 +112,8 @@ class RPNEvaluator {
                 stack.push(Math.round(stack.pop()))
             } else if (token === 'sign') {
                 stack.push(Math.sign(stack.pop()))
+            } else if (token === 'negate') {
+                stack.push(-stack.pop())
             } else if (token === 'pi') {
                 stack.push(Math.PI)
             } else if (token === 'e') {
@@ -215,22 +217,26 @@ class RPNEvaluator {
     }
 }
 
-/* TODO : group lines
- */
 export class AccountLines extends HTMLElement {
     constructor() {
         self = super()
+        this.state = 'open'
+        this.indexes = [
+            0, // normal
+            0, // addition
+            0  // suppression
+        ]
+        this.toDelete = {
+            name: '',
+            value: 0,
+            type: 'number'
+        }
         this.posNode = null
         this.offset = 0
         this.values = {}
         this.lines = []
-        this.linesInGroup = []
         this.nodes = []
         this.heads = []
-        this.group = []
-        this.inGroup = 0
-        this.groupLineCount = 0
-        this.groupIndexCount = 0
         this.tabIndexCount = 0
     }
 
@@ -246,158 +252,110 @@ export class AccountLines extends HTMLElement {
         return this.getValues()
     }
 
+    getLineValue (line) {
+        const lineValue = { position: line.dataset.position }
+        for( const input of [ ...line.querySelectorAll('input'),
+            ...line.querySelectorAll('textarea'),
+            ...line.querySelectorAll('select')])
+        {
+            if (input.name) {
+                const type = input.getAttribute('type')
+                const mandatory = input.getAttribute('mandatory') !== null
+                switch (type) {
+                    default:
+                    case 'text':
+                        if (mandatory && input.value === '') {
+                            return
+                        }    
+                        lineValue[input.name] = input.value
+                        break
+                    case 'number':
+                        if (mandatory && (input.value === '' || isNaN(parseFloat(input.value)))) {
+                            return
+                        }
+                        lineValue[input.name] = parseFloat(input.value)
+                        break
+                    case 'checkbox':
+                        lineValue[input.name] = input.checked
+                        break
+                    case 'radio':
+                        if (input.checked) {
+                            lineValue[input.name] = input.value
+                        }
+                        break
+                }
+            }
+        }
+        if (line.dataset.id) { lineValue.id = line.dataset.id }
+        if (line.dataset.relid) { lineValue.relid = line.dataset.relid }
+
+        return lineValue
+    }
+
     getValues () {
         const values = []
         let index = 0
         this.lines.forEach(line => {
-            const lineValue = {}
-            for( const input of [ ...line.querySelectorAll('input'),
-                ...line.querySelectorAll('textarea'),
-                ...line.querySelectorAll('select')])
-            {
-                if (input.name) {
-                    const type = input.getAttribute('type')
-                    const mandatory = input.getAttribute('mandatory') !== null
-                    switch (type) {
-                        default:
-                        case 'text':
-                            if (mandatory && input.value === '') {
-                                return
-                            }    
-                            lineValue[input.name] = input.value
-                            break
-                        case 'number':
-                            if (mandatory && (input.value === '' || isNaN(parseFloat(input.value)))) {
-                                return
-                            }
-                            lineValue[input.name] = parseFloat(input.value)
-                            break
-                        case 'checkbox':
-                            lineValue[input.name] = input.checked
-                            break
-                        case 'radio':
-                            if (input.checked) {
-                                lineValue[input.name] = input.value
-                            }
-                            break
-                    }
-                }
-            }
+            const lineValue = this.getLineValue(line)
             lineValue.position = ++index
             values.push(lineValue)
         })
         return values.sort((a, b) => a.position - b.position)
     }
 
-    addGroupTail () {
-        const groupTail = document.createElement('div')
-        groupTail.dataset.groupId = this.inGroup
-        groupTail.classList.add(`account-line__group-tail`)
-
-        const span = document.createElement('span')
-        span.innerHTML = '&nbsp;'
-        groupTail.appendChild(span)
-        this.group.forEach(_ => {
-            const span = document.createElement('span')
-            span.innerHTML = '&nbsp;'
-            groupTail.appendChild(span)
-        })
-        const actionDiv = document.createElement('span')
-        actionDiv.innerHTML = '<button type="button" class="account-line__remove">fin</button>'
-        actionDiv.querySelector('button').addEventListener('click', e => {
-            this.inGroup = 0
-            this.addEmptyLine()
-            
-        })
-        groupTail.appendChild(actionDiv)
-        this.appendChild(groupTail)
-    }
-
-    addNewGroup () {
-        this.groupIndexCount++
-        this.inGroup = this.groupIndexCount
-
-        const group = document.createElement('div')
-        group.dataset.used = false
-        group.dataset.groupId = this.inGroup
-        group.classList.add('account-line__group')
-        group.innerHTML = `
-            <span class="account-line__position">${String(this.offset + this.lines.length + 1).padStart(4, '0')}</span>`
-        this.group.forEach(node => {
-            const newNode = node.cloneNode(true)
-            if (newNode.dataset.expression) {
-                newNode.dataset.expression = newNode.dataset.expression.replace(/\%/g, this.inGroup)
-            }
-            if (!newNode.dataset.expression) {
-                newNode.setAttribute('tabindex', ++this.tabIndexCount)
-            } else {
-                newNode.setAttribute('tabindex', -1)
-                newNode.setAttribute('readonly', true)
-            }
-            group.appendChild(newNode)
-        })
-        this.lines.push(group)
-        group.dataset.index = this.lines.length
-
-        group.appendChild(document.createElement('span'))
-        this.appendChild(group)
-        for (let child = group.firstElementChild; child; child = child.nextElementSibling) {
-            let found = false
-            switch(child.tagName) {
-                case 'INPUT':
-                case 'TEXTAREA':
-                case 'SELECT':
-                    found = true
-                    child.focus()
-                    break
-            }
-            if (found) { break }
-        }
-        this.addGroupTail()
-        this.addEmptyLine()    
-    }
-
     addLine (line) {
+        return this._addLine(line, true)
+    }
+
+    _addLine (line, followState = false) {
         let notEmpty = true
+        if (!line.type) { line.type = 'item' }
         const domNode = document.createElement('div')
         if (Object.keys(line).length <= 0) {
             domNode.dataset.used = false
             notEmpty = false
         }
-        let position = this.offset + this.lines.length + 1
-        if (this.inGroup !== 0) {
-            domNode.classList.add('account-line__grouped')
-            domNode.dataset.groupId = this.inGroup
-            if (this.linesInGroup[this.inGroup - 1] === undefined) { this.linesInGroup[this.inGroup - 1] = [] }
-            position = this.linesInGroup[this.inGroup - 1].length + 1
+        if (line._relPosition) {
+            domNode.dataset.relatedPosition = line._relPosition
+            delete line._relPosition
+        }
+        let position = 0
+        if (line.position) {
+            position = line.position
+        } else {
+            position = this.offset + ++this.indexes[0]
+        }
+
+        let prePos = '1.'
+        switch(line.type) {
+            case 'addition': prePos = '2.'; break
+            case 'suppression': prePos = '3.'; break
         }
 
         let posNode
         if (this.posNode) {
             posNode = this.posNode.cloneNode(true)
-            posNode.innerHTML = String(position).padStart(4, '0')
         } else {
             posNode = document.createElement('span')
-            posNode.innerHTML = String(position).padStart(4, '0')
         }
+        domNode.dataset.position = prePos + String(position).padStart(4, '0')
+        posNode.innerHTML = domNode.dataset.position
+
         posNode.setAttribute('tabindex', -1)
         posNode.setAttribute('readonly', true)
         posNode.classList.add('account-line__position')
 
         domNode.appendChild(posNode)
-        if (line._readonly) {
+        if (followState && (this.state === 'closed' || this.state === 'frozen')) {
             domNode.setAttribute('readonly', true)
         }
 
         this.nodes.forEach(node => {
             const newNode = node.cloneNode(true)
-            if (this.inGroup !== 0 && newNode.dataset.nameInGroup) {
-                newNode.name = newNode.dataset.nameInGroup.replace(/\%/g, this.inGroup)
-            }
             if (newNode.name && line[newNode.name]) {
                 newNode.value = line[newNode.name]
             }
-            if (line._readonly) {
+            if (followState && (this.state === 'closed' || this.state === 'frozen')) {
                 switch(newNode.tagName) {
                     default: 
                     case 'INPUT':
@@ -414,6 +372,9 @@ export class AccountLines extends HTMLElement {
                         break
                 }
             }
+            if (newNode.name === this.toDelete.name && line.type === 'suppression') {
+                newNode.dataset.expression = `${newNode.dataset.expression} negate`
+            }
             if (!newNode.dataset.expression) {
                 newNode.setAttribute('tabindex', ++this.tabIndexCount)
             } else {
@@ -424,53 +385,42 @@ export class AccountLines extends HTMLElement {
         })
 
         const actionDiv = document.createElement('div')
-            const button = document.createElement('button')
-            button.type = 'button'
-            button.classList.add('account-line__remove')
-            button.innerText = '-'
-            button.addEventListener('click', e => {
-                const index = domNode.dataset.index
-                this.removeLine(index)
-                this.update()
-                this.dispatchEvent(new CustomEvent('update'))
-            })
-            actionDiv.appendChild(button)
-        if (this.groupEnabled) {
-            if (this.group.length > 0 && this.inGroup === 0) {
-                const groupButton = document.createElement('button')
-                groupButton.type = 'button'
-                groupButton.classList.add('account-line__group')
-                groupButton.innerText = 'group'
-                groupButton.addEventListener('click', e => {
-                    this.addNewGroup()
-                })
-                groupButton.addEventListener('focus', e => {
-                    document.activeElement.blur()
-                })
-                actionDiv.appendChild(groupButton)
-            }
-        }
+        const button = document.createElement('button')
+        button.type = 'button'
+        button.classList.add('account-line__remove')
+        button.innerText = '-'
+        button.addEventListener('click', e => {
+            const index = domNode.dataset.index
+            this.removeLine(index)
+            this.update()
+            this.dispatchEvent(new CustomEvent('update'))
+        })
+        actionDiv.appendChild(button)
         domNode.appendChild(actionDiv)
         domNode.dataset.index = this.lines.length
 
-        if (this.inGroup === 0) {
-            this.appendChild(domNode)
-            this.lines.push(domNode)
-        } else {
-            if (this.linesInGroup[this.inGroup - 1] === undefined) { this.linesInGroup[this.inGroup - 1] = [] }
-            this.linesInGroup[this.inGroup - 1].push(domNode)
-            const groupTail = this.querySelector(`.account-line__group-tail[data-group-id="${this.inGroup}"]`)
-            groupTail.parentNode.insertBefore(domNode, groupTail)
-        }
-
+        this.insertLine(domNode)
+        this.lines.push(domNode)
+        
         if (notEmpty) {
             this.update()
             this.dispatchEvent(new CustomEvent('update'))
         }
     }
 
+    insertLine (line) {
+        for (let node = this.firstElementChild; node; node = node.nextElementSibling) {
+            
+            if (node.dataset.position > line.dataset.position) {
+                this.insertBefore(line, node)
+                return
+            }
+        }
+        this.appendChild(line)
+    }
+
     addEmptyLine () {
-        return this.addLine({})
+        return this._addLine({})
     }
 
     update () {
@@ -483,17 +433,6 @@ export class AccountLines extends HTMLElement {
             })
 
         }
-        this.linesInGroup.forEach((group, index) => {
-            group.forEach((line, index) => {
-                const inputs = line.querySelectorAll('[data-expression]')
-                inputs.forEach(input => {
-                    if (input.dataset.deleted === 'true') { input.value = 0;  return }
-                    input.value = RPNEvaluator.evaluate(
-                        RPNEvaluator.setVariables(input.dataset.expression, line)
-                    )
-                })
-            })
-        })
         this.lines.forEach(line => {
             const inputs = line.querySelectorAll('[data-expression]')
             inputs.forEach(input => {
@@ -511,13 +450,33 @@ export class AccountLines extends HTMLElement {
         
         const node = this.lines[index]
         if (node.getAttribute('readonly') === 'true') {
-            let deleted = true
-            if (node.dataset.deleted === 'true') { deleted = false }
-            node.dataset.deleted = deleted
-            node.classList.toggle('account-line__deleted')
-            node.querySelectorAll('input, textarea, select').forEach(input => {
-                input.dataset.deleted = deleted
-            })
+            if (this.querySelector(`div[data-related-position="${node.dataset.position}"]`)) {
+                return
+            }
+
+            const lineValue = this.getLineValue(node)
+            lineValue._relPosition = node.dataset.position
+            lineValue.type = 'suppression'
+            lineValue.name = `[Suppression position ${lineValue.position}] ${lineValue.name}`
+            lineValue.position = ++this.indexes[2]
+          
+
+            if (lineValue[this.toDelete.name]) {
+                switch (this.toDelete.value) {
+                    case 'set-zero': lineValue[this.toDelete.name] = 0; break
+                    case 'set-empty': lineValue[this.toDelete.name] = ''; break
+                    case 'set-false': lineValue[this.toDelete.name] = false; break
+                    case 'set-null': lineValue[this.toDelete.name] = null; break
+                    case 'set-undefined': lineValue[this.toDelete.name] = undefined; break
+                    case 'negate': break
+                }
+            }
+            
+            if (lineValue.id) {
+                lineValue.relid = lineValue.id
+                delete lineValue.id
+            }
+            this._addLine(lineValue)
             return 
         }
 
@@ -525,12 +484,6 @@ export class AccountLines extends HTMLElement {
 
         this.lines.splice(index, 1)
         node.remove()
-        if (node.dataset.groupId) {
-            this.linesInGroup[node.dataset.groupId - 1].forEach((line, index) => {
-                line.remove()
-            })
-            this.linesInGroup[node.dataset.groupId - 1] = []
-        }
         this.lines.forEach((line, index) => {
             line.querySelector('.account-line__position').innerText = String(this.offset + index + 1).padStart(4, '0')
             line.dataset.index = index
@@ -554,16 +507,8 @@ export class AccountLines extends HTMLElement {
         if (!parent) { return }
         parent.dataset.used = true
         let newLine = false
-        if (parent.dataset.groupId) {
-            this.inGroup = parseInt(parent.dataset.groupId)
-            if (this.linesInGroup[this.inGroup - 1] === undefined || this.linesInGroup[this.inGroup - 1][this.linesInGroup[this.inGroup - 1].length - 1].dataset.used === 'true') {
-                newLine = true
-            }
-        } else {
-            this.inGroup = 0
-            if (this.lines[this.lines.length - 1].dataset.used === 'true') {
-                newLine = true
-            }
+        if (this.lines[this.lines.length - 1].dataset.used === 'true') {
+            newLine = true
         }
         if (newLine) { this.addEmptyLine() }
     
@@ -579,6 +524,10 @@ export class AccountLines extends HTMLElement {
 
     connectedCallback() {
         const headNode = document.createElement('div')
+        const state = this.getAttribute('state')
+        if (state) {
+            this.state = state
+        }
 
         this.addEventListener('keyup', e => this.handleNewLineEvents(e))
         this.addEventListener('change', e => this.handleNewLineEvents(e))
@@ -603,6 +552,11 @@ export class AccountLines extends HTMLElement {
 
         const lineDefinition = this.querySelector('account-line-definition')
         Array.from(lineDefinition.children).forEach(node => {
+            if (node.getAttribute('to-delete')) {
+                this.toDelete.name = node.getAttribute('name')
+                this.toDelete.value = node.getAttribute('to-delete')
+                this.toDelete.type = node.getAttribute('type')
+            }
             node.remove()
             if (node.getAttribute('type') === 'position') {
                 this.posNode = node
@@ -611,14 +565,6 @@ export class AccountLines extends HTMLElement {
             this.nodes.push(node)
         })
         lineDefinition.remove()
-
-        const groupDefinition = this.querySelector('account-group-definition')
-        Array.from(groupDefinition.children).forEach((node, index) => {
-            node.remove()
-            node.classList.add(`account-line__group-${index + 1}`)
-            this.group.push(node)
-        })
-        groupDefinition.remove()
 
         this.appendChild(headNode)
         const cont = this.getAttribute('continue')
