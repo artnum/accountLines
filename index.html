@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Document</title>
+    <style>
+        account-lines {
+            display: grid;
+            grid-template-columns: 0.2fr 3.6fr 0.3fr 0.2fr 0.3fr 0.3fr 0.2fr;
+        }
+        account-lines > legend {
+            display: block;
+            grid-area: header;
+        }
+
+        account-lines > [data-used="false"] > * {
+            opacity: 0.3;
+        }
+
+        account-lines > * > *[readonly] {
+            background-color: #f0f0f0;
+        }
+
+
+        account-lines > div {
+            display: contents;
+        }
+        
+        account-lines .head-intermediate > * {
+            color: white;
+            background-color: black;
+            font-family: monospace;
+        }
+
+        account-summary {
+            display: block;
+            border: 1px solid black;
+            padding: 1rem;
+            max-width: 40ch;
+            margin-top: 4ex;
+        }
+
+        account-summary > legend {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            grid-column-gap: 3px;
+        }
+    </style>
+    <script type="module" src="src/accountLines.js"></script>
+</head>
+<body>
+    <form>
+        <label for="name">Nom</label>
+        <input type="text" name="name"><br>
+        <account-lines name="offer" state="frozen">
+            <account-head-definition>
+                <legend>Position</legend>
+                <legend>Désignation</legend>
+                <legend>Quantité</legend>
+                <legend>Unité</legend>
+                <legend>Prix unitaire</legend>
+                <legend name="total">Total</legend>
+            </account-head-definition>
+            
+            <account-line-definition>
+                <div style="font-family: monospace;" type="position"></div>
+                <textarea name="name"></textarea>
+                <input mandatory  type="number" name="quantity" step="0.01">
+                <select name="unit">
+                    <option value="kg">kg</option>
+                    <option value="g">g</option>
+                    <option value="l">l</option>
+                    <option value="ml">ml</option>
+                    <option value="pcs">pcs</option>
+                </select>
+                <input mandatory type="number" name="price" step="0.01">
+                <input mandatory type="number" name="line_total" step="0.01" to-delete="negate" data-expression="$quantity $price * $*.decimal fix">
+            </account-line-definition>
+        </account-lines>
+        <account-summary for="offer">
+            <legend>Décimal <input value="2" name="decimal"></legend>
+            <legend name="gross" data-expression="$line_total sum $decimal fix">Sout-Total<span></span></legend>
+            <legend name="rplp" data-expression="$gross $rplpValue %+ $decimal fix">RPLP <input name="rplpValue"><span></span></legend>
+            <legend name="rabais" data-expression="$rplp $rabaisPercent %- $decimal fix">Rabais <input name="rabaisPercent"><span></span></legend>
+            <legend name="escompte" data-expression="$rabais $escomptePercent %- $decimal fix">Escompte <input name="escomptePercent"><span></span></legend>
+            <legend name="arrondi" data-expression="$escompte $arrondiBase mround $decimal fix">Arrondi<input value="0.05" name="arrondiBase"><span></span></legend>
+            <legend name="tva" data-expression="$arrondi $tvaPercent %+ $decimal fix">TVA <input name="tvaPercent"><span></span></legend>
+        </account-summary>
+        <button type="submit">Submit</button>
+    </form>
+    <script type="module">
+        import { JFormData } from '../formdata/src/formdata.js'
+        window.addEventListener('load', e => {
+            const node = document.querySelector('account-lines')
+            node.addLine({name: 'TEST', quantity: 10, unit: 'kg', price: 10, line_total: 10})
+            node.addLine({name: 'TEST 2', quantity: 5, unit: 'kg', price: 10, line_total: 10})
+
+            const f = document.querySelector('form')
+            f.addEventListener('submit', e => {
+                e.preventDefault()
+                
+                console.log(document.querySelector('account-summary').update())
+
+                const data = new JFormData(f)
+                console.log(data, data.toJSON());
+            })
+        })
+    </script>
+</body>
+</html>
