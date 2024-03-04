@@ -627,7 +627,7 @@ export class AccountLines extends HTMLElement {
             const headAddition = document.createElement('div')
             headAddition.dataset.position = '2.0000'
             headAddition.classList.add('account-line__head', 'head-addition', 'head-intermediate')
-            headAddition.innerHTML = `<span></span><span style="grid-column: 2 / span ${this.heads.length - 1}">Addition</span><span><button type="button" class="account-line__add">+</button></span>`
+            headAddition.innerHTML = `<span></span><span style="grid-column: 2 / span ${this.heads.length - 1}">Supplément</span><span><button type="button" class="account-line__add">+</button></span>`
             this.appendChild(headAddition)
             headAddition.querySelector('button').addEventListener('click', e => {
                 this.addLine({type: 'addition'})
