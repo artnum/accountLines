@@ -320,6 +320,7 @@ export class AccountLines extends HTMLElement {
         }
         let position = 0
         let prePos = '1.'
+
         switch(line.type) {
             case 'item':
                 prePos = '1.'
@@ -453,7 +454,6 @@ export class AccountLines extends HTMLElement {
             lineValue._relPosition = node.dataset.position
             lineValue.type = 'suppression'
             lineValue.name = `[Suppression position ${lineValue.position}] ${lineValue.name}`
-            lineValue.position = ++this.indexes[2]
           
             if (lineValue[this.toDelete.name]) {
                 switch (this.toDelete.value) {
@@ -489,7 +489,7 @@ export class AccountLines extends HTMLElement {
             }
             line.dataset.position = `${prePos}${String(position).padStart(4, '0')}`
             line.querySelector('.account-line__position').innerText = line.dataset.position
-        }    
+        }
     }
 
     handleNewLineEvents (event) {
