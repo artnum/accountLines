@@ -541,7 +541,7 @@ export class AccountLines extends HTMLElement {
                 newLine = false
             }
         })
-        if (newLine) { this.addLine({type: parent.dataset.type}) }
+        if (newLine && parent.getAttribute('readonly') !== 'true') { this.addLine({type: parent.dataset.type}) }
     
         this.update()
         this.dispatchEvent(new CustomEvent('update'))
