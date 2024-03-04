@@ -549,6 +549,7 @@ export class AccountLines extends HTMLElement {
         })
         
         if (this.state === 'open') {
+            const spanButton = document.createElement('span')
             const addButton = document.createElement('button')
             addButton.type = 'button'
             addButton.classList.add('account-line__add')
@@ -556,7 +557,8 @@ export class AccountLines extends HTMLElement {
             addButton.addEventListener('click', e => {
                 this.addLine({type: 'item'})
             })
-            headNode.appendChild(addButton)
+            spanButton.appendChild(addButton)
+            headNode.appendChild(spanButton)
         } else {
             headNode.appendChild(document.createElement('legend'))
         }
