@@ -311,6 +311,7 @@ export class AccountLines extends HTMLElement {
         let notEmpty = true
         if (!line.type) { line.type = 'item' }
         const domNode = document.createElement('div')
+        domNode.dataset.type = line.type
         if (Object.keys(line).length <= 0) {
             domNode.dataset.used = false
             notEmpty = false
@@ -346,7 +347,7 @@ export class AccountLines extends HTMLElement {
         posNode.classList.add('account-line__position')
 
         domNode.appendChild(posNode)
-        if (followState && (this.state === 'closed' || this.state === 'frozen')) {
+        if (followState && (this.state === 'closed' || this.state === 'frozen') && line.type !== 'addition') {
             domNode.setAttribute('readonly', true)
         }
 
@@ -355,7 +356,7 @@ export class AccountLines extends HTMLElement {
             if (newNode.name && line[newNode.name]) {
                 newNode.value = line[newNode.name]
             }
-            if (followState && (this.state === 'closed' || this.state === 'frozen')) {
+            if (followState && (this.state === 'closed' || this.state === 'frozen') && line.type !== 'addition') {
                 switch(newNode.tagName) {
                     default: 
                     case 'INPUT':
@@ -409,8 +410,15 @@ export class AccountLines extends HTMLElement {
     }
 
     insertLine (line) {
+        if (this.state !== 'open' && line.dataset.type === 'item') {
+            for (let node = this.firstElementChild; node; node = node.nextElementSibling) {
+                if (node.dataset.position > line.dataset.position || node.classList.contains('head-addition') || node.classList.contains('head-suppression')) {
+                    this.insertBefore(line, node)
+                    return
+                }
+            }    
+        }
         for (let node = this.firstElementChild; node; node = node.nextElementSibling) {
-            
             if (node.dataset.position > line.dataset.position) {
                 this.insertBefore(line, node)
                 return
@@ -505,6 +513,11 @@ export class AccountLines extends HTMLElement {
         let parent = target
         while (parent && !parent.dataset?.index) { parent = parent.parentNode }
         if (!parent) { return }
+        if (parent.dataset.type !== 'item') { 
+            this.update()
+            this.dispatchEvent(new CustomEvent('update'))
+            return
+        }
         parent.dataset.used = true
         let newLine = false
         if (this.lines[this.lines.length - 1].dataset.used === 'true') {
@@ -586,6 +599,22 @@ export class AccountLines extends HTMLElement {
                     this.update()
                 })
             }
+        }
+
+        if (this.state !== 'open') {
+            const headAddition = document.createElement('div')
+            headAddition.dataset.position = '2.0000'
+            headAddition.classList.add('account-line__head', 'head-addition', 'head-intermediate')
+            headAddition.innerHTML = `<span style="grid-column: 1 / span ${this.heads.length}">Addition</span><span><button type="button" class="account-line__add">+</button></span>`
+            this.appendChild(headAddition)
+            headAddition.querySelector('button').addEventListener('click', e => {
+                this.addLine({type: 'addition'})
+            })
+            const headSuppression = document.createElement('div')
+            headSuppression.dataset.position = '3.0000'
+            headSuppression.classList.add('account-line__head', 'head-suppression', 'head-intermediate')
+            headSuppression.innerHTML = `<span style="grid-column: 1 / span ${this.heads.length + 1}">Suppression</span>`
+            this.appendChild(headSuppression)
         }
     }
 }
