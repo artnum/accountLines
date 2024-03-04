@@ -308,9 +308,11 @@ export class AccountLines extends HTMLElement {
         if (!line.type) { line.type = 'item' }
         const domNode = document.createElement('div')
         domNode.dataset.type = line.type
-        if (Object.keys(line).length <= 0) {
+        if (Object.keys(line).length <= 1) {
             domNode.dataset.used = false
             notEmpty = false
+        } else {
+            domNode.dataset.used = true
         }
         if (line._relPosition) {
             domNode.dataset.relatedPosition = line._relPosition
@@ -339,6 +341,7 @@ export class AccountLines extends HTMLElement {
             posNode = document.createElement('span')
         }
         domNode.dataset.position = prePos + String(position).padStart(4, '0')
+        domNode.dataset.index = position
         posNode.innerHTML = domNode.dataset.position
 
         posNode.setAttribute('tabindex', -1)
@@ -484,7 +487,8 @@ export class AccountLines extends HTMLElement {
                 case 'addition': prePos = '2.'; position = ++this.indexes[1]; break
                 case 'suppression': prePos = '3.'; position = ++this.indexes[2]; break
             }
-            line.querySelector('.account-line__position').innerText = `${prePos}${String(position).padStart(4, '0')}`
+            line.dataset.position = `${prePos}${String(position).padStart(4, '0')}`
+            line.querySelector('.account-line__position').innerText = line.dataset.position
         }    
     }
 
@@ -494,14 +498,19 @@ export class AccountLines extends HTMLElement {
         let parent = target
         while (parent && !parent.dataset?.index) { parent = parent.parentNode }
         if (!parent) { return }
-        if (parent.dataset.type !== 'item') { 
+        if (parent.dataset.type === 'suppression') { 
             this.update()
             this.dispatchEvent(new CustomEvent('update'))
             return
         }
         parent.dataset.used = true
-        let newLine = false
-        if (newLine) { this.addEmptyLine() }
+        let newLine = true
+        this.querySelectorAll(`[data-type="${parent.dataset.type}"]`).forEach(node => {
+            if (node.dataset.used === 'false') {
+                newLine = false
+            }
+        })
+        if (newLine) { this.addLine({type: parent.dataset.type}) }
     
         this.update()
         this.dispatchEvent(new CustomEvent('update'))
@@ -538,7 +547,19 @@ export class AccountLines extends HTMLElement {
             this.heads.push(node)
             headNode.appendChild(node)
         })
-        headNode.appendChild(document.createElement('legend'))
+        
+        if (this.state === 'open') {
+            const addButton = document.createElement('button')
+            addButton.type = 'button'
+            addButton.classList.add('account-line__add')
+            addButton.innerText = '+'
+            addButton.addEventListener('click', e => {
+                this.addLine({type: 'item'})
+            })
+            headNode.appendChild(addButton)
+        } else {
+            headNode.appendChild(document.createElement('legend'))
+        }
         headDefinition.remove()
 
         const lineDefinition = this.querySelector('account-line-definition')
