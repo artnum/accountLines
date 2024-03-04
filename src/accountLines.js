@@ -255,6 +255,7 @@ export class AccountLines extends HTMLElement {
         const lineValue = { position: line.dataset.position }
         for(const input of line.querySelectorAll('input, textarea, select'))
         {
+            input.setCustomValidity('')
             if (input.name) {
                 const type = input.getAttribute('type')
                 const mandatory = input.getAttribute('mandatory') !== null
@@ -294,6 +295,9 @@ export class AccountLines extends HTMLElement {
         for (let line = this.firstElementChild; line; line = line.nextElementSibling) {
             if (line.classList.contains('account-line__head')) { continue }
             const lineValue = this.getLineValue(line)
+            if (lineValue === undefined) {
+                continue
+            }
             values.push(lineValue)
         }
         return values.sort((a, b) => a.position - b.position)
@@ -344,6 +348,9 @@ export class AccountLines extends HTMLElement {
         domNode.dataset.position = prePos + String(position).padStart(4, '0')
         domNode.dataset.index = position
         posNode.innerHTML = domNode.dataset.position
+        if (domNode.dataset.relatedPosition) {
+            posNode.innerHTML += `<br><span class="relation">${domNode.dataset.relatedPosition}</span>`
+        }
 
         posNode.setAttribute('tabindex', -1)
         posNode.setAttribute('readonly', true)
@@ -453,8 +460,7 @@ export class AccountLines extends HTMLElement {
             const lineValue = this.getLineValue(node)
             lineValue._relPosition = node.dataset.position
             lineValue.type = 'suppression'
-            lineValue.name = `[Suppression position ${lineValue.position}] ${lineValue.name}`
-          
+            lineValue.name = lineValue.name
             if (lineValue[this.toDelete.name]) {
                 switch (this.toDelete.value) {
                     case 'set-zero': lineValue[this.toDelete.name] = 0; break
@@ -499,6 +505,31 @@ export class AccountLines extends HTMLElement {
         while (parent && !parent.dataset?.index) { parent = parent.parentNode }
         if (!parent) { return }
         if (parent.dataset.type === 'suppression') { 
+            const input = this.querySelector(`div[data-position="${parent.dataset.relatedPosition}"] [name="${target.name}"]`)
+            switch (target.type) {
+                default:
+                case 'text':
+                    if (target.value !== input.value) {
+                        target.value = input.value
+                    }
+                    break
+                case 'number':
+                    const value = parseFloat(target.value)
+                    if (value > parseFloat(input.value) || isNaN(value)) {
+                        target.value = input.value
+                    }
+                    break
+                case 'checkbox':
+                    if (target.checked !== input.checked) {
+                        target.checked = input.checked
+                    }
+                    break
+                case 'radio':
+                    if (target.value !== input.value) {
+                        target.checked = input.checked
+                    }
+                    break
+            }
             this.update()
             this.dispatchEvent(new CustomEvent('update'))
             return
