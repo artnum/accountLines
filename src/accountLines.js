@@ -432,15 +432,6 @@ export class AccountLines extends HTMLElement {
     }
 
     update () {
-        const cont = this.getAttribute('continue')
-        if (cont) {
-            this.offset = document.querySelector(`[name="${cont}"]`).lines.length
-            this.lines.forEach((line, index) => {
-                line.querySelector('.account-line__position').innerText = String(this.offset + index + 1).padStart(4, '0')
-                line.dataset.index = index
-            })
-
-        }
         this.lines.forEach(line => {
             const inputs = line.querySelectorAll('[data-expression]')
             inputs.forEach(input => {
@@ -493,7 +484,7 @@ export class AccountLines extends HTMLElement {
         this.lines.splice(index, 1)
         node.remove()
         this.lines.forEach((line, index) => {
-            line.querySelector('.account-line__position').innerText = String(this.offset + index + 1).padStart(4, '0')
+            line.querySelector('.account-line__position').innerText = String(index + 1).padStart(4, '0')
             line.dataset.index = index
         })
         if (this.lines.length === 0) {
@@ -580,16 +571,6 @@ export class AccountLines extends HTMLElement {
         lineDefinition.remove()
 
         this.appendChild(headNode)
-        const cont = this.getAttribute('continue')
-        if (cont) {
-            const node = document.querySelector(`[name="${cont}"]`)
-            this.offset = node.lines.length + node.offset
-            document.querySelector(`[name="${cont}"]`).addEventListener('update', e => {
-                const node = document.querySelector(`[name="${cont}"]`)
-                this.offset = node.lines.length + node.offset
-                this.update()
-            })
-        }
 
         const myName = this.getAttribute('name')
         if (myName) {
