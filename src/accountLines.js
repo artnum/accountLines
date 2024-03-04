@@ -234,7 +234,6 @@ export class AccountLines extends HTMLElement {
         this.posNode = null
         this.offset = 0
         this.values = {}
-        this.lines = []
         this.nodes = []
         this.heads = []
         this.tabIndexCount = 0
@@ -254,9 +253,7 @@ export class AccountLines extends HTMLElement {
 
     getLineValue (line) {
         const lineValue = { position: line.dataset.position }
-        for( const input of [ ...line.querySelectorAll('input'),
-            ...line.querySelectorAll('textarea'),
-            ...line.querySelectorAll('select')])
+        for(const input of line.querySelectorAll('input, textarea, select'))
         {
             if (input.name) {
                 const type = input.getAttribute('type')
@@ -294,12 +291,11 @@ export class AccountLines extends HTMLElement {
 
     getValues () {
         const values = []
-        let index = 0
-        this.lines.forEach(line => {
+        for (let line = this.firstElementChild; line; line = line.nextElementSibling) {
+            if (line.classList.contains('account-line__head')) { continue }
             const lineValue = this.getLineValue(line)
-            lineValue.position = ++index
             values.push(lineValue)
-        })
+        }
         return values.sort((a, b) => a.position - b.position)
     }
 
@@ -321,18 +317,21 @@ export class AccountLines extends HTMLElement {
             delete line._relPosition
         }
         let position = 0
-        if (line.position) {
-            position = line.position
-        } else {
-            position = this.offset + ++this.indexes[0]
-        }
-
         let prePos = '1.'
         switch(line.type) {
-            case 'addition': prePos = '2.'; break
-            case 'suppression': prePos = '3.'; break
+            case 'item':
+                prePos = '1.'
+                position = ++this.indexes[0];
+                break;
+            case 'addition':
+                prePos = '2.'
+                position = ++this.indexes[1];
+                break;
+            case 'suppression':
+                prePos = '3.'
+                position = ++this.indexes[2];
+                break;
         }
-
         let posNode
         if (this.posNode) {
             posNode = this.posNode.cloneNode(true)
@@ -391,18 +390,14 @@ export class AccountLines extends HTMLElement {
         button.classList.add('account-line__remove')
         button.innerText = '-'
         button.addEventListener('click', e => {
-            const index = domNode.dataset.index
-            this.removeLine(index)
+            this.removeLine(domNode)
             this.update()
             this.dispatchEvent(new CustomEvent('update'))
         })
         actionDiv.appendChild(button)
         domNode.appendChild(actionDiv)
-        domNode.dataset.index = this.lines.length
 
         this.insertLine(domNode)
-        this.lines.push(domNode)
-        
         if (notEmpty) {
             this.update()
             this.dispatchEvent(new CustomEvent('update'))
@@ -432,7 +427,7 @@ export class AccountLines extends HTMLElement {
     }
 
     update () {
-        this.lines.forEach(line => {
+        for (let line = this.firstElementChild; line; line = line.nextElementSibling) {
             const inputs = line.querySelectorAll('[data-expression]')
             inputs.forEach(input => {
                 if (input.dataset.deleted === 'true') { input.value = 0;  return }
@@ -440,14 +435,12 @@ export class AccountLines extends HTMLElement {
                     RPNEvaluator.setVariables(input.dataset.expression, line)
                 )
             })
-        })        
+        }
     }
 
-    removeLine (index, force = false) {
-        index = parseInt(index)
-        if (isNaN(index)) { return }
-        
-        const node = this.lines[index]
+    removeLine (node, force = false) {
+        if (!node) { return }
+
         if (node.getAttribute('readonly') === 'true') {
             if (this.querySelector(`div[data-related-position="${node.dataset.position}"]`)) {
                 return
@@ -459,7 +452,6 @@ export class AccountLines extends HTMLElement {
             lineValue.name = `[Suppression position ${lineValue.position}] ${lineValue.name}`
             lineValue.position = ++this.indexes[2]
           
-
             if (lineValue[this.toDelete.name]) {
                 switch (this.toDelete.value) {
                     case 'set-zero': lineValue[this.toDelete.name] = 0; break
@@ -479,23 +471,21 @@ export class AccountLines extends HTMLElement {
             return 
         }
 
-        if (this.lines.length <= 1 && !force) { return }
-
-        this.lines.splice(index, 1)
         node.remove()
-        this.lines.forEach((line, index) => {
-            line.querySelector('.account-line__position').innerText = String(index + 1).padStart(4, '0')
-            line.dataset.index = index
-        })
-        if (this.lines.length === 0) {
-            return
-        }
-        if (this.lines.length <= index) {
-            this.lines[this.lines.length  - 1].querySelector('input').focus()
-            delete this.lines[this.lines.length  - 1].dataset.used
-            return
-        }
-        this.lines[index].querySelector('input').focus()    
+        this.indexes[0] = 0
+        this.indexes[1] = 0
+        this.indexes[2] = 0
+        for (let line = this.firstElementChild; line; line = line.nextElementSibling) {
+            if (line.classList.contains('account-line__head')) { continue }
+            let position = 0
+            let prePos = '1.'
+            switch(line.dataset.type) {
+                case 'item': position = ++this.indexes[0]; break
+                case 'addition': prePos = '2.'; position = ++this.indexes[1]; break
+                case 'suppression': prePos = '3.'; position = ++this.indexes[2]; break
+            }
+            line.querySelector('.account-line__position').innerText = `${prePos}${String(position).padStart(4, '0')}`
+        }    
     }
 
     handleNewLineEvents (event) {
@@ -511,9 +501,6 @@ export class AccountLines extends HTMLElement {
         }
         parent.dataset.used = true
         let newLine = false
-        if (this.lines[this.lines.length - 1].dataset.used === 'true') {
-            newLine = true
-        }
         if (newLine) { this.addEmptyLine() }
     
         this.update()
@@ -586,7 +573,7 @@ export class AccountLines extends HTMLElement {
             const headAddition = document.createElement('div')
             headAddition.dataset.position = '2.0000'
             headAddition.classList.add('account-line__head', 'head-addition', 'head-intermediate')
-            headAddition.innerHTML = `<span style="grid-column: 1 / span ${this.heads.length}">Addition</span><span><button type="button" class="account-line__add">+</button></span>`
+            headAddition.innerHTML = `<span></span><span style="grid-column: 2 / span ${this.heads.length - 1}">Addition</span><span><button type="button" class="account-line__add">+</button></span>`
             this.appendChild(headAddition)
             headAddition.querySelector('button').addEventListener('click', e => {
                 this.addLine({type: 'addition'})
@@ -594,7 +581,7 @@ export class AccountLines extends HTMLElement {
             const headSuppression = document.createElement('div')
             headSuppression.dataset.position = '3.0000'
             headSuppression.classList.add('account-line__head', 'head-suppression', 'head-intermediate')
-            headSuppression.innerHTML = `<span style="grid-column: 1 / span ${this.heads.length + 1}">Suppression</span>`
+            headSuppression.innerHTML = `<span></span><span style="grid-column: 2 / span ${this.heads.length - 1}">Suppression</span><span></span>`
             this.appendChild(headSuppression)
         }
     }
