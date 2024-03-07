@@ -1,3 +1,11 @@
+/* registers are global and can be used to store intermediate values 
+ * special registers : 
+ *   - INTERMEDIATE : store the intermediate value for some operation
+ *   - LAST : store the last value
+ */
+const Registers = {
+}
+
 class RPNEvaluator {
     /* Reverse Polish Notation Evaluator with some extra functions :
         sum : sum all the values in the stack
@@ -73,11 +81,13 @@ class RPNEvaluator {
             } else if (token === '%-') {
                 const a = stack.pop()
                 const b = stack.pop()
-                stack.push(b - b / 100 * a)
+                Registers.INTERMEDIATE = (b / 100 * a)
+                stack.push(b - Registers.INTERMEDIATE)
             } else if (token === '%+') {
                 const a = stack.pop()
                 const b = stack.pop()
-                stack.push(b + b / 100 * a)
+                Registers.INTERMEDIATE = (b / 100 * a)
+                stack.push(b + Registers.INTERMEDIATE)
             } else if (token === 'cpy') {
                 const a = stack.pop()
                 stack.push(a)
@@ -118,14 +128,29 @@ class RPNEvaluator {
                 stack.push(Math.PI)
             } else if (token === 'e') {
                 stack.push(Math.E)
+            } else if (token === 'ldr') { // load from register
+                const a = stack.pop()
+                stack.push(Registers[a]) // store in register
+            } else if (token === 'str') {
+                const a = stack.pop()
+                Registers[a] = stack.pop()
+                stack.push(Registers[a])
+            } else if (token === 'cpr') { // copy from register to register
+                const a = stack.pop()
+                const b = stack.pop()
+                Registers[a] = Registers[b]
             } else if (token === 'mround') {
                 const a = stack.pop()
                 const b = stack.pop()
-                stack.push(Math.round(b / a) * a)
+                const rounded = Math.round(b / a) * a
+                Registers.INTERMEDIATE = rounded - b
+                stack.push(rounded)
             } else if (token === 'fix') {
                 const pow = Math.pow(10, stack.pop())
                 const a = stack.pop()
-                stack.push(Math.round(a * pow) / pow)
+                const fixed = Math.round(a * pow) / pow
+                Registers.INTERMEDIATE = fixed - a
+                stack.push(fixed)
             } else if (token === 'sum') {
                 let value = 0
                 while (stack.length > 0) {
@@ -138,7 +163,9 @@ class RPNEvaluator {
                 while (stack.length > 0) {
                     value += stack.pop()
                     count += 1
+                
                 }
+                Registers.INTERMEDIATE = count
                 stack.push(value / count)
             } else if (token === 'min') {
                 let value = stack.pop()
@@ -163,7 +190,19 @@ class RPNEvaluator {
                 const a = stack.pop()
                 const b = stack.pop()
                 stack.push(Math.pow(b, 1 / a))
+            } else if (token === 'debug') {
+                console.log(stack)
+                console.log(Registers)
             } else {
+                if (token.startsWith('~')) {
+                    stack.push(token.substring(1))
+                    return
+                }
+                if (token.startsWith('$')) {
+                    stack.push(token.substring(1))
+                    return
+                }
+
                 const value = parseFloat(token)
                 if (isNaN(value)) {
                     stack.push(0)
@@ -174,9 +213,47 @@ class RPNEvaluator {
         })
         const value = parseFloat(stack.pop())
         if (isNaN(value)) {
+            Registers.LAST = 0
             return 0
         }
+        Registers.LAST = value
         return value
+    }
+
+    static getRequiredRegisters (expression) {
+        let required = []
+        const tokens = expression.split(/\s+/)
+        for (let i = 0; i < tokens.length; i++) {
+            if (tokens[i] === 'ldr') {
+                required.push(tokens[i - 1])
+                continue
+            }
+            if (tokens[i] === 'cpr') {
+                if (tokens[i - 2] === '~INTERMEDIATE') { continue }
+                if (tokens[i - 2] === '~LAST') { continue }
+                required.push(tokens[i - 2])
+                continue
+            }
+        }
+        return required
+    }
+
+    static getProvidedRegisters (expression) {
+        let provided = []
+        const tokens = expression.split(/\s+/)
+        for (let i = 0; i < tokens.length; i++) {
+            if (tokens[i] === 'str') {
+                provided.push(tokens[i - 1])
+                continue
+            }
+            if (tokens[i] === 'cpr') {
+                if (tokens[i - 1] === '~INTERMEDIATE') { continue }
+                if (tokens[i - 1] === '~LAST') { continue }
+                provided.push(tokens[i - 1])
+                continue
+            }
+        }
+        return provided
     }
 
     static getVariables (expression) {
@@ -237,6 +314,7 @@ export class AccountLines extends HTMLElement {
         this.nodes = []
         this.heads = []
         this.tabIndexCount = 0
+        this.precision = null
     }
 
     setValue (name, value) {
@@ -397,11 +475,7 @@ export class AccountLines extends HTMLElement {
         posNode.classList.add('account-line__position')
 
         domNode.appendChild(posNode)
-        if (line.state === 'open') {
-            this.unlockLine(domNode)
-        } else {
-            this.lockLine(domNode)
-        }
+
         this.nodes.forEach(node => {
             const newNode = node.cloneNode(true)
             if (newNode.name && line[newNode.name]) {
@@ -438,22 +512,24 @@ export class AccountLines extends HTMLElement {
         const lock = document.createElement('button')
         lock.type = 'button'
         lock.classList.add('account-line__lock')
-        
+ 
         if (line.state === 'open') {
-            lock.innerText = '🔒'
+            this.unlockLine(domNode)
+            lock.innerText = '🔓'
             lock.dataset.action = 'freeze'
         } else {
-            lock.innerHTML = '🔓'
+            this.lockLine(domNode)
+            lock.innerHTML = '🔒'
             lock.dataset.action = 'open'
         }
         
         lock.addEventListener('click', e => {
             if (e.target.dataset.action === 'freeze') {
-                e.target.innerHTML = '🔓'
+                e.target.innerHTML = '🔒'
                 e.target.dataset.action = 'open'
                 this.lockLine(domNode)
             } else {
-                e.target.innerText = '🔒'
+                e.target.innerText = '🔓'
                 e.target.dataset.action = 'freeze'
                 this.unlockLine(domNode)
             }
@@ -526,15 +602,31 @@ export class AccountLines extends HTMLElement {
     }
 
     update () {
+        let intermediateValue = 0
+        let intermediateCount = 0
         for (let line = this.firstElementChild; line; line = line.nextElementSibling) {
+            if (line.classList.contains('account-line__head')) {
+                if (line === this.firstElementChild) { continue }
+                RPNEvaluator.evaluate(`${intermediateValue} ~IVALUE${intermediateCount} str`)
+                intermediateCount++
+                intermediateValue = 0
+                continue 
+            }
             const inputs = line.querySelectorAll('[data-expression]')
             inputs.forEach(input => {
                 if (input.dataset.deleted === 'true') { input.value = 0;  return }
-                input.value = RPNEvaluator.evaluate(
+                const value = RPNEvaluator.evaluate(
                     RPNEvaluator.setVariables(input.dataset.expression, line)
                 )
+                if (this.precision !== null) {
+                    input.value = value.toFixed(this.precision)
+                } else {
+                    input.value = value
+                }
+                intermediateValue += value
             })
         }
+        RPNEvaluator.evaluate(`${intermediateValue} ~IVALUE${intermediateCount} str`)
     }
 
     removeLine (node, force = false) {
@@ -658,6 +750,8 @@ export class AccountLines extends HTMLElement {
     connectedCallback() {
         const headNode = document.createElement('div')
         const state = this.getAttribute('state')
+        this.precision = this.getAttribute('precision') === null ? null : parseInt(this.getAttribute('precision'))
+        if (Number.isNaN(this.precision) || this.precision < 0) { this.precision = null }
         if (state) {
             this.state = state
         }
@@ -747,6 +841,7 @@ class AccountSummary extends HTMLElement {
     constructor () {
         super()
         this.for = null
+        this.precision = null
     }
 
     update () {
@@ -757,17 +852,19 @@ class AccountSummary extends HTMLElement {
                 value: 0,
                 dom: node,
                 name: node.getAttribute('name'),
-                require: RPNEvaluator.getVariables(node.dataset.expression)
+                require: [...RPNEvaluator.getVariables(node.dataset.expression)
                     .filter((value, index, self) => self.indexOf(value) === index)
-                    .map(value => value.substring(1)),
+                    .map(value => value.substring(1)), ...RPNEvaluator.getRequiredRegisters(node.dataset.expression)
+                    .filter((value, index, self) => self.indexOf(value) === index)],
+                provide: [node.getAttribute('name') ?? '__NONE__', ...RPNEvaluator.getProvidedRegisters(node.dataset.expression)
+                    .filter((value, index, self) => self.indexOf(value) === index)],
                 next: []
             })
         })
-
         nodes.forEach(node => {
             node.require.forEach(require => {
                 nodes.forEach(other => {
-                    if (other.name === require) {
+                    if (other.provide.includes(require)) {
                         node.next.push(other)
                     }
                 })
@@ -775,7 +872,9 @@ class AccountSummary extends HTMLElement {
         })
 
         const traverseGraph = (node, visited = new Set(), recursionStack = new Set()) => {
-            if (recursionStack.has(node)) { throw new Error('Cyclic dependency') }
+            if (recursionStack.has(node)) { 
+                throw new Error('Cyclic dependency') 
+            }
             if (visited.has(node)) { return }
             recursionStack.add(node)
             visited.add(node)
@@ -790,11 +889,15 @@ class AccountSummary extends HTMLElement {
             node.dom.dataset.value = node.value
         }
         nodes.forEach(node => traverseGraph(node))
-        nodes.forEach(node => node.dom.querySelector('span').innerHTML = node.value)
+        nodes.forEach(node => {
+            node.dom.innerHTML = this.precision === null ? node.value : node.value.toFixed(this.precision)
+        })
     }
 
     connectedCallback () {
         const forNode = this.getAttribute('for')
+        this.precision = this.getAttribute('precision') === null ? null : parseInt(this.getAttribute('precision'))
+        if (Number.isNaN(this.precision) || this.precision < 0) { this.precision = null }
         if (forNode) {
             const node = document.querySelector(`[name="${forNode}"]`)
             if (node) {
