@@ -34,6 +34,10 @@
             min-height: 2em;
             border: 1px solid white;
         }
+        
+        account-lines > div.related > * {
+            background-color: lightslategrey;
+        }
 
         account-lines .head-intermediate > * {
             font-size: 1em;
@@ -75,7 +79,7 @@
             
             <account-line-definition>
                 <div style="font-family: monospace;" type="position"></div>
-                <textarea name="name"></textarea>
+                <textarea no-copy name="name"></textarea>
                 <input mandatory  type="number" name="quantity" step="0.01">
                 <select name="unit">
                     <option value="kg">kg</option>

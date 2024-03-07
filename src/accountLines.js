@@ -307,12 +307,53 @@ export class AccountLines extends HTMLElement {
         return this._addLine(line, true)
     }
 
-    _addLine (line, followState = false) {
+    lockLine (line) {
+        line.setAttribute('readonly', true)
+        for(let node = line.firstElementChild; node; node = node.nextElementSibling) {
+            if (node.dataset.expression) { continue; }
+            switch(node.tagName) {
+                default: 
+                case 'INPUT':
+                    node.setAttribute('readonly', true)
+                    break
+                case 'SELECT':
+                    node.querySelectorAll('option').forEach(option => {
+                        if (option.value === node.value) {
+                            option.setAttribute('selected', true)
+                        } else {
+                            option.setAttribute('disabled', true)
+                        }
+                    })
+                    break
+            }
+        }
+    }
+
+    unlockLine (line) {
+        line.removeAttribute('readonly')
+        for(let node = line.firstElementChild; node; node = node.nextElementSibling) {
+            if (node.dataset.expression) { continue; }
+            switch(node.tagName) {
+                default: 
+                case 'INPUT':
+                    node.removeAttribute('readonly')
+                    break
+                case 'SELECT':
+                    node.querySelectorAll('option').forEach(option => {
+                        option.removeAttribute('disabled')
+                    })
+                    break
+            }
+        }
+    }
+
+    _addLine (line) {
         let notEmpty = true
         if (!line.type) { line.type = 'item' }
+        if (!line.state) { line.state = 'open' }
         const domNode = document.createElement('div')
         domNode.dataset.type = line.type
-        if (Object.keys(line).length <= 1) {
+        if (Object.keys(line).length <= 2) {
             domNode.dataset.used = false
             notEmpty = false
         } else {
@@ -323,19 +364,18 @@ export class AccountLines extends HTMLElement {
             delete line._relPosition
         }
         let position = 0
-        let prePos = '1.'
-
+        let prePos = 1
         switch(line.type) {
             case 'item':
-                prePos = '1.'
+                prePos = 1
                 position = ++this.indexes[0];
                 break;
             case 'addition':
-                prePos = '2.'
+                prePos = 2
                 position = ++this.indexes[1];
                 break;
             case 'suppression':
-                prePos = '3.'
+                prePos = 3
                 position = ++this.indexes[2];
                 break;
         }
@@ -345,7 +385,7 @@ export class AccountLines extends HTMLElement {
         } else {
             posNode = document.createElement('span')
         }
-        domNode.dataset.position = prePos + String(position).padStart(4, '0')
+        domNode.dataset.position = `${prePos}.${String(position).padStart(4, '0')}`
         domNode.dataset.index = position
         posNode.innerHTML = domNode.dataset.position
         if (domNode.dataset.relatedPosition) {
@@ -357,37 +397,27 @@ export class AccountLines extends HTMLElement {
         posNode.classList.add('account-line__position')
 
         domNode.appendChild(posNode)
-        if (followState && (this.state === 'closed' || this.state === 'frozen') && line.type !== 'addition') {
-            domNode.setAttribute('readonly', true)
+        if (line.state === 'open') {
+            this.unlockLine(domNode)
+        } else {
+            this.lockLine(domNode)
         }
-
         this.nodes.forEach(node => {
             const newNode = node.cloneNode(true)
             if (newNode.name && line[newNode.name]) {
                 newNode.value = line[newNode.name]
             }
-            if (followState && (this.state === 'closed' || this.state === 'frozen') && line.type !== 'addition') {
-                switch(newNode.tagName) {
-                    default: 
-                    case 'INPUT':
-                        newNode.setAttribute('readonly', true)
-                        break
-                    case 'SELECT':
-                        newNode.querySelectorAll('option').forEach(option => {
-                            if (option.value === newNode.value) {
-                                option.setAttribute('selected', true)
-                            } else {
-                                option.setAttribute('disabled', true)
-                            }
-                        })
-                        break
-                }
-            }
             if (newNode.name === this.toDelete.name && line.type === 'suppression') {
                 newNode.dataset.expression = `${newNode.dataset.expression} negate`
+                if (domNode.dataset.relatedPosition) {
+                    const relNode = this.querySelector(`div[data-position="${domNode.dataset.relatedPosition}"] [name="${newNode.name}"]`)
+                    if (relNode) {
+                        newNode.dataset.expression = `${relNode.dataset.expression} negate`
+                    }
+                } 
             }
             if (!newNode.dataset.expression) {
-                newNode.setAttribute('tabindex', ++this.tabIndexCount)
+                newNode.setAttribute('tabindex', (prePos * 10000) + ++this.tabIndexCount)
             } else {
                 newNode.setAttribute('tabindex', -1)
                 newNode.setAttribute('readonly', true)
@@ -399,12 +429,38 @@ export class AccountLines extends HTMLElement {
         const button = document.createElement('button')
         button.type = 'button'
         button.classList.add('account-line__remove')
-        button.innerText = '-'
+        button.innerText = '🗙'
         button.addEventListener('click', e => {
             this.removeLine(domNode)
             this.update()
             this.dispatchEvent(new CustomEvent('update'))
         })
+        const lock = document.createElement('button')
+        lock.type = 'button'
+        lock.classList.add('account-line__lock')
+        
+        if (line.state === 'open') {
+            lock.innerText = '🔒'
+            lock.dataset.action = 'freeze'
+        } else {
+            lock.innerHTML = '🔓'
+            lock.dataset.action = 'open'
+        }
+        
+        lock.addEventListener('click', e => {
+            if (e.target.dataset.action === 'freeze') {
+                e.target.innerHTML = '🔓'
+                e.target.dataset.action = 'open'
+                this.lockLine(domNode)
+            } else {
+                e.target.innerText = '🔒'
+                e.target.dataset.action = 'freeze'
+                this.unlockLine(domNode)
+            }
+            
+        })
+        actionDiv.appendChild(lock)
+    
         actionDiv.appendChild(button)
         domNode.appendChild(actionDiv)
 
@@ -413,6 +469,38 @@ export class AccountLines extends HTMLElement {
             this.update()
             this.dispatchEvent(new CustomEvent('update'))
         }
+        domNode.addEventListener('mouseenter', e => {
+            const node = e.target
+            const related = this.querySelector(`div[data-position="${node.dataset.relatedPosition}"]`)
+            if (related) {
+                related.classList.add('related')
+                return  
+            }
+
+            ;(() => {
+                const related = this.querySelector(`div[data-related-position="${node.dataset.position}"]`)
+                if (related) {
+                    related.classList.add('related')
+                }
+            })()
+
+        })
+        domNode.addEventListener('mouseleave', e => {
+            const node = e.target
+            const related = this.querySelector(`div[data-position="${node.dataset.relatedPosition}"]`)
+            if (related) {
+                related.classList.remove('related')
+                return
+            }
+
+            ;(() => {
+                const related = this.querySelector(`div[data-related-position="${node.dataset.position}"]`)
+                if (related) {
+                    related.classList.remove('related')
+                }
+            })()
+        })
+        return domNode
     }
 
     insertLine (line) {
@@ -476,10 +564,18 @@ export class AccountLines extends HTMLElement {
                 lineValue.relid = lineValue.id
                 delete lineValue.id
             }
-            this._addLine(lineValue)
+            const newLine = this._addLine(lineValue)
+            node.addEventListener('change', e => {
+                if (e.target.getAttribute('no-copy') !== null) { return }
+                newLine.querySelector(`[name="${e.target.name}"]`).value = e.target.value
+            })
+            node.addEventListener('delete', e => {
+                this.removeLine(newLine)
+            })
             return 
         }
 
+        node.dispatchEvent(new CustomEvent('delete'))
         node.remove()
         this.indexes[0] = 0
         this.indexes[1] = 0
@@ -487,14 +583,18 @@ export class AccountLines extends HTMLElement {
         for (let line = this.firstElementChild; line; line = line.nextElementSibling) {
             if (line.classList.contains('account-line__head')) { continue }
             let position = 0
-            let prePos = '1.'
+            let prePos = 1
             switch(line.dataset.type) {
                 case 'item': position = ++this.indexes[0]; break
-                case 'addition': prePos = '2.'; position = ++this.indexes[1]; break
-                case 'suppression': prePos = '3.'; position = ++this.indexes[2]; break
+                case 'addition': prePos = 2; position = ++this.indexes[1]; break
+                case 'suppression': prePos = 3; position = ++this.indexes[2]; break
             }
-            line.dataset.position = `${prePos}${String(position).padStart(4, '0')}`
+            line.dataset.position = `${prePos}. ${String(position).padStart(4, '0')}`
             line.querySelector('.account-line__position').innerText = line.dataset.position
+            if (line.dataset.relatedPosition) {
+                line.querySelector('.account-line__position').innerHTML += `<br><span class="relation">${line.dataset.relatedPosition}</span>`
+            }
+    
         }
     }
 
@@ -506,29 +606,31 @@ export class AccountLines extends HTMLElement {
         if (!parent) { return }
         if (parent.dataset.type === 'suppression') { 
             const input = this.querySelector(`div[data-position="${parent.dataset.relatedPosition}"] [name="${target.name}"]`)
-            switch (target.type) {
-                default:
-                case 'text':
-                    if (target.value !== input.value) {
-                        target.value = input.value
-                    }
-                    break
-                case 'number':
-                    const value = parseFloat(target.value)
-                    if (value > parseFloat(input.value) || isNaN(value)) {
-                        target.value = input.value
-                    }
-                    break
-                case 'checkbox':
-                    if (target.checked !== input.checked) {
-                        target.checked = input.checked
-                    }
-                    break
-                case 'radio':
-                    if (target.value !== input.value) {
-                        target.checked = input.checked
-                    }
-                    break
+            if (input) {
+                switch (target.type) {
+                    default:
+                    case 'text':
+                        if (target.value !== input.value) {
+                            target.value = input.value
+                        }
+                        break
+                    case 'number':
+                        const value = parseFloat(target.value)
+                        if (value > parseFloat(input.value) || isNaN(value)) {
+                            target.value = input.value
+                        }
+                        break
+                    case 'checkbox':
+                        if (target.checked !== input.checked) {
+                            target.checked = input.checked
+                        }
+                        break
+                    case 'radio':
+                        if (target.value !== input.value) {
+                            target.checked = input.checked
+                        }
+                        break
+                }
             }
             this.update()
             this.dispatchEvent(new CustomEvent('update'))
