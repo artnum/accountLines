@@ -139,8 +139,8 @@ class RPNEvaluator {
                 stack.push(Math.E)
             } else if (token === 'ldr') { // load from register
                 const a = stack.pop()
-                stack.push(Registers[a]) // store in register
-            } else if (token === 'str') {
+                stack.push(Registers[a]) 
+            } else if (token === 'str') { // store in register
                 const a = stack.pop()
                 Registers[a] = stack.pop()
                 stack.push(Registers[a])
@@ -148,7 +148,7 @@ class RPNEvaluator {
                 const a = stack.pop()
                 const b = stack.pop()
                 Registers[a] = Registers[b]
-            } else if (token === 'mround') {
+            } else if (token === 'mround') { // round to multiple
                 const a = stack.pop()
                 const b = stack.pop()
                 const rounded = Math.round(b / a) * a
@@ -211,8 +211,8 @@ class RPNEvaluator {
                     stack.push(a)
                 }            
             } else if (token === 'jmpnz') {
-                const a = stack.pop()
                 const label = stack.pop()
+                const a = stack.pop()
                 if (a !== 0) {
                     jump = `${label.substring(1)}`
                 } else {
@@ -897,6 +897,9 @@ class AccountSummary extends HTMLElement {
     }
 
     evaluate (expression) {
+        expression = RPNEvaluator.setVariables(expression, this)
+        if (this.for) { expression = RPNEvaluator.setVariables(expression, this.for) }
+        console.log(expression)
         return RPNEvaluator.evaluate(expression)
     }
 
