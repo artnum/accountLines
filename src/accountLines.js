@@ -46,12 +46,10 @@ class RPNEvaluator {
         const tokens = expression.split(/\s+/)
         tokens.forEach(token => {
             if (token === '') { return }
-            if (token.startsWith('}')) {
+            if (token === '}') {
                 if (jump.length === 0) { return }
-                if (jump === token) {
-                    jump = ''
-                    return
-                }
+                jump = ''
+                return
             }
             if (jump.length > 0) { return }
             if (token === '+') {
@@ -206,7 +204,7 @@ class RPNEvaluator {
                 const label = stack.pop()
                 const a = stack.pop()
                 if (a === 0) {
-                    jump = `${label.substring(1)}`
+                    jump = '{'
                 } else {
                     stack.push(a)
                 }            
@@ -214,7 +212,7 @@ class RPNEvaluator {
                 const label = stack.pop()
                 const a = stack.pop()
                 if (a !== 0) {
-                    jump = `${label.substring(1)}`
+                    jump = '{'
                 } else {
                     stack.push(a)
                 }
@@ -227,7 +225,7 @@ class RPNEvaluator {
                     stack.push(token.substring(1))
                     return
                 }
-                if (token.startsWith('{') && token.length > 1) {
+                if (token === '{') {
                     stack.push(token)
                     return
                 }
@@ -940,6 +938,7 @@ class AccountSummary extends HTMLElement {
             node.next.forEach(next => {
                 traverseGraph(next, visited, recursionStack)
             })
+
             let expression = RPNEvaluator.setVariables(node.dom.dataset.expression, this)
             if (this.for) { expression = RPNEvaluator.setVariables(expression, this.for) }
             node.value = RPNEvaluator.evaluate(
@@ -947,6 +946,7 @@ class AccountSummary extends HTMLElement {
             )
             node.dom.dataset.value = node.value
         }
+
         nodes.forEach(node => traverseGraph(node))
         nodes.forEach(node => {
             node.dom.innerHTML = this.precision === null ? node.value : node.value.toFixed(this.precision)
