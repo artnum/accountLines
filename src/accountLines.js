@@ -42,9 +42,18 @@ class RPNEvaluator {
     static evaluate (expression) {
         // reverse polish notation
         const stack = []
+        let jump = ''
         const tokens = expression.split(/\s+/)
         tokens.forEach(token => {
             if (token === '') { return }
+            if (token.startsWith('}')) {
+                if (jump.length === 0) { return }
+                if (jump === token) {
+                    jump = ''
+                    return
+                }
+            }
+            if (jump.length > 0) { return }
             if (token === '+') {
                 const a = stack.pop()
                 const b = stack.pop()
@@ -193,6 +202,22 @@ class RPNEvaluator {
             } else if (token === 'debug') {
                 console.log(stack)
                 console.log(Registers)
+            } else if (token === 'jmpz') {
+                const label = stack.pop()
+                const a = stack.pop()
+                if (a === 0) {
+                    jump = `${label.substring(1)}`
+                } else {
+                    stack.push(a)
+                }            
+            } else if (token === 'jmpnz') {
+                const a = stack.pop()
+                const label = stack.pop()
+                if (a !== 0) {
+                    jump = `${label.substring(1)}`
+                } else {
+                    stack.push(a)
+                }
             } else {
                 if (token.startsWith('~')) {
                     stack.push(token.substring(1))
@@ -200,6 +225,10 @@ class RPNEvaluator {
                 }
                 if (token.startsWith('$')) {
                     stack.push(token.substring(1))
+                    return
+                }
+                if (token.startsWith('{') && token.length > 1) {
+                    stack.push(token)
                     return
                 }
 
@@ -329,6 +358,10 @@ export class AccountLines extends HTMLElement {
         return this.getValues()
     }
 
+    evaluate (expression) {
+        return RPNEvaluator.evaluate(expression)
+    }
+
     getLineValue (line) {
         const lineValue = { position: line.dataset.position }
         for(const input of line.querySelectorAll('input, textarea, select'))
@@ -364,6 +397,7 @@ export class AccountLines extends HTMLElement {
         }
         if (line.dataset.id) { lineValue.id = line.dataset.id }
         if (line.dataset.relid) { lineValue.relid = line.dataset.relid }
+        if (line.dataset.type) { lineValue.type = line.dataset.type }
 
         return lineValue
     }
@@ -430,6 +464,10 @@ export class AccountLines extends HTMLElement {
         if (!line.type) { line.type = 'item' }
         if (!line.state) { line.state = 'open' }
         const domNode = document.createElement('div')
+        if (line.id) {
+            domNode.dataset.id = line.id
+            domNode.id = line.id
+        }
         domNode.dataset.type = line.type
         if (Object.keys(line).length <= 2) {
             domNode.dataset.used = false
@@ -747,6 +785,34 @@ export class AccountLines extends HTMLElement {
         })
     }
 
+    setLineId (linePosition, id) {
+        const line = this.querySelector(`div[data-position="${linePosition}"]`)
+        if (line) {
+            line.id = id
+            line.dataset.id = id
+        }
+    }
+
+    setState (state) {
+        switch(state) {
+            case 'frozen':
+                const headAddition = document.createElement('div')
+                headAddition.dataset.position = '2.0000'
+                headAddition.classList.add('account-line__head', 'head-addition', 'head-intermediate')
+                headAddition.innerHTML = `<span></span><span style="grid-column: 2 / span ${this.heads.length - 1}">Supplément</span><span><button type="button" class="account-line__add">+</button></span>`
+                this.appendChild(headAddition)
+                headAddition.querySelector('button').addEventListener('click', e => {
+                    this.addLine({type: 'addition'})
+                })
+                const headSuppression = document.createElement('div')
+                headSuppression.dataset.position = '3.0000'
+                headSuppression.classList.add('account-line__head', 'head-suppression', 'head-intermediate')
+                headSuppression.innerHTML = `<span></span><span style="grid-column: 2 / span ${this.heads.length - 1}">Suppression</span><span></span>`
+                this.appendChild(headSuppression)
+                break
+        }
+    }
+
     connectedCallback() {
         const headNode = document.createElement('div')
         const state = this.getAttribute('state')
@@ -818,22 +884,8 @@ export class AccountLines extends HTMLElement {
                 })
             }
         }
-
-        if (this.state !== 'open') {
-            const headAddition = document.createElement('div')
-            headAddition.dataset.position = '2.0000'
-            headAddition.classList.add('account-line__head', 'head-addition', 'head-intermediate')
-            headAddition.innerHTML = `<span></span><span style="grid-column: 2 / span ${this.heads.length - 1}">Supplément</span><span><button type="button" class="account-line__add">+</button></span>`
-            this.appendChild(headAddition)
-            headAddition.querySelector('button').addEventListener('click', e => {
-                this.addLine({type: 'addition'})
-            })
-            const headSuppression = document.createElement('div')
-            headSuppression.dataset.position = '3.0000'
-            headSuppression.classList.add('account-line__head', 'head-suppression', 'head-intermediate')
-            headSuppression.innerHTML = `<span></span><span style="grid-column: 2 / span ${this.heads.length - 1}">Suppression</span><span></span>`
-            this.appendChild(headSuppression)
-        }
+                
+        this.setState(this.state)
     }
 }
 
@@ -842,6 +894,10 @@ class AccountSummary extends HTMLElement {
         super()
         this.for = null
         this.precision = null
+    }
+
+    evaluate (expression) {
+        return RPNEvaluator.evaluate(expression)
     }
 
     update () {
