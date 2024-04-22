@@ -394,13 +394,14 @@ export class AccountLines extends HTMLElement {
             }
         }
         if (line.dataset.id) { lineValue.id = line.dataset.id }
-        if (line.dataset.relid) { lineValue.relid = line.dataset.relid }
+        if (line.dataset.related) { lineValue.related = line.dataset.related }
         if (line.dataset.type) { lineValue.type = line.dataset.type }
 
         return lineValue
     }
 
     getValues () {
+        const content = {id: this.id ?? this.dataset.id ?? 0, lines: []}       
         const values = []
         for (let line = this.firstElementChild; line; line = line.nextElementSibling) {
             if (line.classList.contains('account-line__head')) { continue }
@@ -410,7 +411,8 @@ export class AccountLines extends HTMLElement {
             }
             values.push(lineValue)
         }
-        return values.sort((a, b) => a.position - b.position)
+        content.lines = values.sort((a, b) => a.position - b.position)
+        return content
     }
 
     addLine (line) {
@@ -465,6 +467,9 @@ export class AccountLines extends HTMLElement {
         if (line.id) {
             domNode.dataset.id = line.id
             domNode.id = line.id
+        }
+        if (line.related) {
+            domNode.dataset.related = line.related
         }
         domNode.dataset.type = line.type
         if (Object.keys(line).length <= 2) {
@@ -689,7 +694,7 @@ export class AccountLines extends HTMLElement {
             }
             
             if (lineValue.id) {
-                lineValue.relid = lineValue.id
+                lineValue.related = lineValue.id
                 delete lineValue.id
             }
             const newLine = this._addLine(lineValue)
@@ -728,11 +733,10 @@ export class AccountLines extends HTMLElement {
 
     handleNewLineEvents (event) {
         const target = event.target
-        
         let parent = target
         while (parent && !parent.dataset?.index) { parent = parent.parentNode }
         if (!parent) { return }
-        if (parent.dataset.type === 'suppression') { 
+        if (parent.dataset.type === 'suppression') {
             const input = this.querySelector(`div[data-position="${parent.dataset.relatedPosition}"] [name="${target.name}"]`)
             if (input) {
                 switch (target.type) {
@@ -777,6 +781,18 @@ export class AccountLines extends HTMLElement {
         this.dispatchEvent(new CustomEvent('update'))
     }
 
+    clearLines () {
+        for (let line = this.firstElementChild; line;) {
+            const nextLine = line.nextElementSibling
+            if (line.classList.contains('account-line__head')) { line = nextLine; continue }
+            line.remove()
+            line = nextLine
+        }
+        this.indexes[0] = 0
+        this.indexes[1] = 0
+        this.indexes[2] = 0
+    }
+
     loadLines (lines) {
         lines.forEach(line => {
             this.addLine(line)
@@ -794,19 +810,30 @@ export class AccountLines extends HTMLElement {
     setState (state) {
         switch(state) {
             case 'frozen':
-                const headAddition = document.createElement('div')
-                headAddition.dataset.position = '2.0000'
-                headAddition.classList.add('account-line__head', 'head-addition', 'head-intermediate')
-                headAddition.innerHTML = `<span></span><span style="grid-column: 2 / span ${this.heads.length - 1}">Supplément</span><span><button type="button" class="account-line__add">+</button></span>`
-                this.appendChild(headAddition)
-                headAddition.querySelector('button').addEventListener('click', e => {
-                    this.addLine({type: 'addition'})
+                if (this.querySelectorAll('.head-addition').length === 0) {
+                    const headAddition = document.createElement('div')
+                    headAddition.dataset.position = '2.0000'
+                    headAddition.classList.add('account-line__head', 'head-addition', 'head-intermediate')
+                    headAddition.innerHTML = `<span></span><span style="grid-column: 2 / span ${this.heads.length - 1}">Supplément</span><span><button type="button" class="account-line__add">+</button></span>`
+                    this.appendChild(headAddition)
+                    headAddition.querySelector('button').addEventListener('click', e => {
+                        this.addLine({type: 'addition'})
+                    })
+                }
+                if (this.querySelectorAll('.head-suppression').length === 0) {
+                    const headSuppression = document.createElement('div')
+                    headSuppression.dataset.position = '3.0000'
+                    headSuppression.classList.add('account-line__head', 'head-suppression', 'head-intermediate')
+                    headSuppression.innerHTML = `<span></span><span style="grid-column: 2 / span ${this.heads.length - 1}">Suppression</span><span></span>`
+                    this.appendChild(headSuppression)
+                }
+                break
+            case 'open':
+                this.querySelectorAll('.head-addition, .head-suppression')
+                .forEach(node => {
+                    console.log(node)
+                    node.remove()
                 })
-                const headSuppression = document.createElement('div')
-                headSuppression.dataset.position = '3.0000'
-                headSuppression.classList.add('account-line__head', 'head-suppression', 'head-intermediate')
-                headSuppression.innerHTML = `<span></span><span style="grid-column: 2 / span ${this.heads.length - 1}">Suppression</span><span></span>`
-                this.appendChild(headSuppression)
                 break
         }
     }
