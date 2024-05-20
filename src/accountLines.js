@@ -569,13 +569,17 @@ export class AccountLines extends HTMLElement {
                 newNode.setAttribute('readonly', true)
                 newNode.dataset.readonly = 'true'
             }
+            if (node.getAttribute('tabindex') === '-1') {
+                newNode.setAttribute('tabindex', -1)
+            }
             domNode.appendChild(newNode)
         })
 
         const actionDiv = document.createElement('div')
+        actionDiv.classList.add('account-line__actions')
         const button = document.createElement('button')
         button.type = 'button'
-        button.classList.add('account-line__remove')
+        button.classList.add('account-line__remove', 'account-line_button')
         button.innerText = '🗙'
         button.addEventListener('click', e => {
             this.removeLine(domNode)
@@ -584,7 +588,7 @@ export class AccountLines extends HTMLElement {
         })
         const lock = document.createElement('button')
         lock.type = 'button'
-        lock.classList.add('account-line__lock')
+        lock.classList.add('account-line__lock', 'account-line_button')
  
         if (line.state === 'open') {
             this.unlockLine(domNode)
