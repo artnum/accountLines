@@ -342,6 +342,7 @@ export class AccountLines extends HTMLElement {
         this.heads = []
         this.tabIndexCount = 0
         this.precision = null
+        this.parser = (value) => value
     }
 
     setValue (name, value) {
@@ -362,32 +363,36 @@ export class AccountLines extends HTMLElement {
 
     getLineValue (line) {
         const lineValue = { position: line.dataset.position }
-        for(const input of line.querySelectorAll('input, textarea, select'))
+        for(const input of line.querySelectorAll('input, textarea, select, div'))
         {
-            input.setCustomValidity('')
-            if (input.name) {
+            if (input.name || input.dataset.name) {
+                const name = input.name ?? input.dataset.name
                 const type = input.getAttribute('type')
                 const mandatory = input.getAttribute('mandatory') !== null
                 switch (type) {
                     default:
                     case 'text':
-                        if (mandatory && input.value === '') {
+                        if (mandatory && (input.value === '' && input.dataset.value === '')) {
                             return
-                        }    
-                        lineValue[input.name] = input.value
+                        }
+                        if (input.dataset.value) {
+                            lineValue[name] = input.dataset.value
+                            break
+                        }
+                        lineValue[name] = input.value
                         break
                     case 'number':
                         if (mandatory && (input.value === '' || isNaN(parseFloat(input.value)))) {
                             return
                         }
-                        lineValue[input.name] = parseFloat(input.value)
+                        lineValue[name] = parseFloat(input.value)
                         break
                     case 'checkbox':
-                        lineValue[input.name] = input.checked
+                        lineValue[name] = input.checked
                         break
                     case 'radio':
                         if (input.checked) {
-                            lineValue[input.name] = input.value
+                            lineValue[name] = input.value
                         }
                         break
                 }
@@ -423,6 +428,7 @@ export class AccountLines extends HTMLElement {
         line.setAttribute('readonly', true)
         for(let node = line.firstElementChild; node; node = node.nextElementSibling) {
             if (node.dataset.expression) { continue; }
+            node.dataset.readonly = 'true'
             switch(node.tagName) {
                 default: 
                 case 'INPUT':
@@ -445,6 +451,7 @@ export class AccountLines extends HTMLElement {
         line.removeAttribute('readonly')
         for(let node = line.firstElementChild; node; node = node.nextElementSibling) {
             if (node.dataset.expression) { continue; }
+            node.dataset.readonly = 'false'
             switch(node.tagName) {
                 default: 
                 case 'INPUT':
@@ -457,6 +464,15 @@ export class AccountLines extends HTMLElement {
                     break
             }
         }
+    }
+
+    createTextAreaNode (node, line) {
+        if (line[node.name] === undefined) { line[node.name] = '' }
+        const newNode = this.renderTextDiv(line[node.name])
+        newNode.dataset.name = node.name
+        if (node.dataset.expression) { newNode.dataset.expression = node.dataset.expression }
+        newNode.setAttribute('tabindex', node.getAttribute('tabindex'))
+        return newNode
     }
 
     _addLine (line) {
@@ -482,6 +498,7 @@ export class AccountLines extends HTMLElement {
             domNode.dataset.relatedPosition = line._relPosition
             delete line._relPosition
         }
+        domNode.dataset.rawLineData = JSON.stringify(line)
         let position = 0
         let prePos = 1
         switch(line.type) {
@@ -516,12 +533,26 @@ export class AccountLines extends HTMLElement {
         posNode.classList.add('account-line__position')
 
         domNode.appendChild(posNode)
-
         this.nodes.forEach(node => {
-            const newNode = node.cloneNode(true)
-            if (newNode.name && line[newNode.name]) {
-                newNode.value = line[newNode.name]
-            }
+            const newNode = (() => {
+                if (node.type === 'textarea') {
+                    return this.createTextAreaNode(node, line)
+                }
+                const newNode = node.cloneNode(true)
+                if (newNode.name && line[newNode.name]) {
+                    if (newNode.tagName === 'DIV') {
+                        newNode.innerHTML = line[newNode.name]
+                    } else {
+                        newNode.value = line[newNode.name]
+                    }
+                } else if (newNode.dataset.name && line[newNode.dataset.name]) {
+                    newNode.innerHTML = line[newNode.dataset.name]
+                }
+                return newNode
+            })();
+
+
+
             if (newNode.name === this.toDelete.name && line.type === 'suppression') {
                 newNode.dataset.expression = `${newNode.dataset.expression} negate`
                 if (domNode.dataset.relatedPosition) {
@@ -536,6 +567,7 @@ export class AccountLines extends HTMLElement {
             } else {
                 newNode.setAttribute('tabindex', -1)
                 newNode.setAttribute('readonly', true)
+                newNode.dataset.readonly = 'true'
             }
             domNode.appendChild(newNode)
         })
@@ -569,10 +601,12 @@ export class AccountLines extends HTMLElement {
                 e.target.innerHTML = '🔒'
                 e.target.dataset.action = 'open'
                 this.lockLine(domNode)
+                this.dispatchEvent(new CustomEvent('lock-line', {detail: this.getLineValue(domNode)}))
             } else {
                 e.target.innerText = '🔓'
                 e.target.dataset.action = 'freeze'
                 this.unlockLine(domNode)
+                this.dispatchEvent(new CustomEvent('unlock-line', {detail: this.getLineValue(domNode)}))
             }
             
         })
@@ -625,6 +659,7 @@ export class AccountLines extends HTMLElement {
             for (let node = this.firstElementChild; node; node = node.nextElementSibling) {
                 if (node.dataset.position > line.dataset.position || node.classList.contains('head-addition') || node.classList.contains('head-suppression')) {
                     this.insertBefore(line, node)
+                    this.dispatchEvent(new CustomEvent('insert-line', {detail: line}))
                     return
                 }
             }    
@@ -632,9 +667,11 @@ export class AccountLines extends HTMLElement {
         for (let node = this.firstElementChild; node; node = node.nextElementSibling) {
             if (node.dataset.position > line.dataset.position) {
                 this.insertBefore(line, node)
+                this.dispatchEvent(new CustomEvent('insert-line', {detail: line}))
                 return
             }
         }
+        this.dispatchEvent(new CustomEvent('insert-line', {detail: line}))
         this.appendChild(line)
     }
 
@@ -797,6 +834,11 @@ export class AccountLines extends HTMLElement {
         lines.forEach(line => {
             this.addLine(line)
         })
+        this.querySelectorAll('*[data-related]').forEach(node => {
+            const relnode = this.querySelector('[id="' + node.dataset.related + '"]')
+            node.dataset.relatedPosition = relnode.dataset.position
+            node.querySelector('.account-line__position').innerHTML = `${node.dataset.position}<br><span class="relation">${relnode.dataset.position}</span>`
+        })
     }
 
     setLineId (linePosition, id) {
@@ -827,16 +869,52 @@ export class AccountLines extends HTMLElement {
                     headSuppression.innerHTML = `<span></span><span style="grid-column: 2 / span ${this.heads.length - 1}">Suppression</span><span></span>`
                     this.appendChild(headSuppression)
                 }
+
+                this.querySelector('.head-items button.account-line__add')?.remove()
                 break
             case 'open':
                 this.querySelectorAll('.head-addition, .head-suppression')
                 .forEach(node => {
-                    console.log(node)
                     node.remove()
                 })
                 break
         }
     }
+
+    renderTextDiv (text) {
+        const div = document.createElement('div')
+        div.classList.add('account-line__rendered-textarea')
+        div.dataset.type = 'textarea'
+        if (text === '') {
+            div.dataset.value = ''
+            div.innerHTML = ''
+        } else {
+            div.innerHTML = this.parser(text)
+            div.dataset.value = text
+        }
+        return div
+    }
+
+    renderTextArea (node) {
+        const div = this.renderTextDiv(node.value)
+        div.dataset.name = node.name
+        div.dataset.readonly = node.getAttribute('readonly')
+        div.setAttribute('tabindex', node.getAttribute('tabindex'))        
+        node.replaceWith(div)
+    }
+
+    unrenderTextArea (node) {
+        if (node.dataset.readonly === 'true') { return }
+        const editLine = document.createElement('div')
+        const textarea = document.createElement('textarea')
+        textarea.setAttribute('tabindex', node.getAttribute('tabindex'))
+        textarea.value = node.dataset.value
+        textarea.name = node.dataset.name
+        node.replaceWith(textarea)
+        textarea.focus()
+    }
+
+
 
     connectedCallback() {
         const headNode = document.createElement('div')
@@ -850,16 +928,27 @@ export class AccountLines extends HTMLElement {
         this.addEventListener('keyup', e => this.handleNewLineEvents(e))
         this.addEventListener('change', e => this.handleNewLineEvents(e))
         this.addEventListener('focus', e => {
+            const node = e.target
             switch(e.target.tagName) {
+                case 'DIV':
+                    if (node.dataset.type === 'textarea') {
+                        this.unrenderTextArea(node)
+                    }
                 case 'INPUT':
                 case 'TEXTAREA':
                 case 'SELECT':
                     this.handleNewLineEvents(e)
             }
-        })
+        }, {capture: true})
+        this.addEventListener('blur', event => {
+            const node = event.target
+            if (node.tagName === 'TEXTAREA') {
+               this.renderTextArea(node)
+            }
+        }, {capture: true})
 
         const headDefinition = this.querySelector('account-head-definition')
-        headNode.classList.add('account-line__head')
+        headNode.classList.add('account-line__head', 'head-items')
         Array.from(headDefinition.children).forEach(node => {
             node.remove()
             this.heads.push(node)
@@ -924,7 +1013,6 @@ class AccountSummary extends HTMLElement {
     evaluate (expression) {
         expression = RPNEvaluator.setVariables(expression, this)
         if (this.for) { expression = RPNEvaluator.setVariables(expression, this.for) }
-        console.log(expression)
         return RPNEvaluator.evaluate(expression)
     }
 
