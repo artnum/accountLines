@@ -216,6 +216,12 @@ class RPNEvaluator {
                 } else {
                     stack.push(a)
                 }
+            } else if (token === 'reset') {
+                for (const key in Registers) {
+                    delete Registers[key]
+                }
+                Registers.INTERMEDIATE = 0
+                Registers.LAST = 0
             } else {
                 if (token.startsWith('~')) {
                     stack.push(token.substring(1))
@@ -287,6 +293,14 @@ class RPNEvaluator {
         return expression.match(/(\$[a-zA-Z0-9_\-\.\*]+)/g) || []
     }
 
+    static reset () {
+        for (const key in Registers) {
+            delete Registers[key]
+        }
+        Registers.INTERMEDIATE = 0
+        Registers.LAST = 0
+    }
+
     static setVariables (expression, doc = document) {
         RPNEvaluator.getVariables(expression)
         .forEach(match => {
@@ -343,6 +357,12 @@ export class AccountLines extends HTMLElement {
         this.tabIndexCount = 0
         this.precision = null
         this.parser = (value) => value
+        this.installTextarea = null
+        this.getTextareaValue = null
+    }
+
+    getEvaluator () {
+        return RPNEvaluator
     }
 
     setValue (name, value) {
@@ -367,25 +387,40 @@ export class AccountLines extends HTMLElement {
         {
             if (input.name || input.dataset.name) {
                 const name = input.name ?? input.dataset.name
-                const type = input.getAttribute('type')
-                const mandatory = input.getAttribute('mandatory') !== null
+                const type = input?.dataset.type || input.getAttribute('type') || 'text'
+                const mandatory = input.hasAttribute('mandatory')
                 switch (type) {
-                    default:
-                    case 'text':
-                        if (mandatory && (input.value === '' && input.dataset.value === '')) {
-                            return
-                        }
-                        if (input.dataset.value) {
-                            lineValue[name] = input.dataset.value
+                    case 'textarea':
+                        if (this.getTextareaValue) {
+                            let value = undefined
+
+                            value = this.getTextareaValue(input)
+                            if (mandatory && (value === undefined || value === null)) {
+                                return
+                            }
+                            lineValue[name] = value
                             break
                         }
-                        lineValue[name] = input.value
+                        /* fall throug */
+                    default:
+                    case 'text':
+                        let value = undefined
+                        if (input.dataset.value) {
+                            value = input.dataset.value
+                        } else {
+                            value = input.value
+                        }
+                        if (mandatory && (value === undefined)) {
+                            return
+                        }
+                        lineValue[name] = value
                         break
                     case 'number':
                         if (mandatory && (input.value === '' || isNaN(parseFloat(input.value)))) {
                             return
                         }
                         lineValue[name] = parseFloat(input.value)
+                        if (lineValue[name] === NaN) { lineValue[name] = 0 }
                         break
                     case 'checkbox':
                         lineValue[name] = input.checked
@@ -472,6 +507,7 @@ export class AccountLines extends HTMLElement {
         newNode.dataset.name = node.name
         if (node.dataset.expression) { newNode.dataset.expression = node.dataset.expression }
         newNode.setAttribute('tabindex', node.getAttribute('tabindex'))
+        if (node.hasAttribute('mandatory')) { newNode.setAttribute('mandatory', true) }
         return newNode
     }
 
@@ -535,7 +571,7 @@ export class AccountLines extends HTMLElement {
         domNode.appendChild(posNode)
         this.nodes.forEach(node => {
             const newNode = (() => {
-                if (node.type === 'textarea') {
+                if (node.type === 'textarea' && !this.installTextarea) {
                     return this.createTextAreaNode(node, line)
                 }
                 const newNode = node.cloneNode(true)
@@ -550,8 +586,6 @@ export class AccountLines extends HTMLElement {
                 }
                 return newNode
             })();
-
-
 
             if (newNode.name === this.toDelete.name && line.type === 'suppression') {
                 newNode.dataset.expression = `${newNode.dataset.expression} negate`
@@ -572,6 +606,27 @@ export class AccountLines extends HTMLElement {
             if (node.getAttribute('tabindex') === '-1') {
                 newNode.setAttribute('tabindex', -1)
             }
+            if (node.hasAttribute('mandatory')) {
+                newNode.setAttribute('mandatory', true)
+            }
+
+            /* if we have installTextarea, we wrap into a container in case
+             * it replaces the parent node which many editor found do this.
+             * And, in case it doesn't replace the parent node, the function
+             * installTextarea can do this itself (the other way around is 
+             * possible, but the 4 editors I tested replaced the parent 
+             * node).
+             */
+            if (newNode.tagName === 'TEXTAREA' && this.installTextarea) {
+                const container = document.createElement('div')
+                container.classList.add('account-line__textarea')
+                container.appendChild(newNode)
+                domNode.appendChild(container)
+                const installedTextaread = this.installTextarea(newNode, line.state === 'open')
+                if (node.hasAttribute('mandatory')) { installedTextaread.setAttribute('mandatory', true) }
+                if (node.getAttribute('readonly') === 'true') { installedTextaread.setAttribute('readonly', true) }
+                return
+            }
             domNode.appendChild(newNode)
         })
 
@@ -586,8 +641,14 @@ export class AccountLines extends HTMLElement {
             this.update()
             this.dispatchEvent(new CustomEvent('update'))
         })
-        const lock = document.createElement('button')
-        lock.type = 'button'
+        const lock = (() => {
+            if (this.id === line.docid || line.docid === undefined) {
+                const lock = document.createElement('button')
+                lock.type = 'button'
+                return lock
+            }
+            return document.createElement('div')
+        })();
         lock.classList.add('account-line__lock', 'account-line_button')
  
         if (line.state === 'open') {
@@ -624,37 +685,6 @@ export class AccountLines extends HTMLElement {
             this.update()
             this.dispatchEvent(new CustomEvent('update'))
         }
-        domNode.addEventListener('mouseenter', e => {
-            const node = e.target
-            const related = this.querySelector(`div[data-position="${node.dataset.relatedPosition}"]`)
-            if (related) {
-                related.classList.add('related')
-                return  
-            }
-
-            ;(() => {
-                const related = this.querySelector(`div[data-related-position="${node.dataset.position}"]`)
-                if (related) {
-                    related.classList.add('related')
-                }
-            })()
-
-        })
-        domNode.addEventListener('mouseleave', e => {
-            const node = e.target
-            const related = this.querySelector(`div[data-position="${node.dataset.relatedPosition}"]`)
-            if (related) {
-                related.classList.remove('related')
-                return
-            }
-
-            ;(() => {
-                const related = this.querySelector(`div[data-related-position="${node.dataset.position}"]`)
-                if (related) {
-                    related.classList.remove('related')
-                }
-            })()
-        })
         return domNode
     }
 
@@ -763,7 +793,7 @@ export class AccountLines extends HTMLElement {
                 case 'addition': prePos = 2; position = ++this.indexes[1]; break
                 case 'suppression': prePos = 3; position = ++this.indexes[2]; break
             }
-            line.dataset.position = `${prePos}. ${String(position).padStart(4, '0')}`
+            line.dataset.position = `${prePos}.${String(position).padStart(4, '0')}`
             line.querySelector('.account-line__position').innerText = line.dataset.position
             if (line.dataset.relatedPosition) {
                 line.querySelector('.account-line__position').innerHTML += `<br><span class="relation">${line.dataset.relatedPosition}</span>`
@@ -860,7 +890,7 @@ export class AccountLines extends HTMLElement {
                     const headAddition = document.createElement('div')
                     headAddition.dataset.position = '2.0000'
                     headAddition.classList.add('account-line__head', 'head-addition', 'head-intermediate')
-                    headAddition.innerHTML = `<span></span><span style="grid-column: 2 / span ${this.heads.length - 1}">Supplément</span><span><button type="button" class="account-line__add">+</button></span>`
+                    headAddition.innerHTML = `<span></span><span style="grid-column: 2 / span ${this.heads.length - 1}">Complément</span><span><button type="button" class="account-line__add">+</button></span>`
                     this.appendChild(headAddition)
                     headAddition.querySelector('button').addEventListener('click', e => {
                         this.addLine({type: 'addition'})
@@ -903,7 +933,8 @@ export class AccountLines extends HTMLElement {
         const div = this.renderTextDiv(node.value)
         div.dataset.name = node.name
         div.dataset.readonly = node.getAttribute('readonly')
-        div.setAttribute('tabindex', node.getAttribute('tabindex'))        
+        div.setAttribute('tabindex', node.getAttribute('tabindex'))
+        if (node.hasAttribute('mandatory')) { div.setAttribute('mandatory', true) }
         node.replaceWith(div)
     }
 
@@ -914,6 +945,7 @@ export class AccountLines extends HTMLElement {
         textarea.setAttribute('tabindex', node.getAttribute('tabindex'))
         textarea.value = node.dataset.value
         textarea.name = node.dataset.name
+        if (node.hasAttribute('mandatory')) { textarea.setAttribute('mandatory', true) }
         node.replaceWith(textarea)
         textarea.focus()
     }
@@ -935,6 +967,7 @@ export class AccountLines extends HTMLElement {
             const node = e.target
             switch(e.target.tagName) {
                 case 'DIV':
+                    if (this.installTextarea) { return }
                     if (node.dataset.type === 'textarea') {
                         this.unrenderTextArea(node)
                     }
@@ -944,9 +977,10 @@ export class AccountLines extends HTMLElement {
                     this.handleNewLineEvents(e)
             }
         }, {capture: true})
+
         this.addEventListener('blur', event => {
             const node = event.target
-            if (node.tagName === 'TEXTAREA') {
+            if (node.tagName === 'TEXTAREA' && !this.installTextarea) {
                this.renderTextArea(node)
             }
         }, {capture: true})
@@ -1012,6 +1046,10 @@ class AccountSummary extends HTMLElement {
         super()
         this.for = null
         this.precision = null
+    }
+
+    getEvaluator () {
+        return RPNEvaluator
     }
 
     evaluate (expression) {
