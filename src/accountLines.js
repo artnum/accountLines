@@ -39,13 +39,19 @@ class RPNEvaluator {
       pass a different object as second parameter of RPNEvaluator.setVariable.
 
      */
-    static evaluate (expression) {
+    static evaluate (expression, withStack = []) {
         // reverse polish notation
-        const stack = []
+        let storedExpression = ''
+        let storing = false
+        const stack = withStack
         let jump = ''
         const tokens = expression.split(/\s+/)
         tokens.forEach(token => {
             if (token === '') { return }
+            if (storing && token !== '|') {
+                storedExpression += token + ' '
+                return
+            }
             if (token === '}') {
                 if (jump.length === 0) { return }
                 jump = ''
@@ -216,6 +222,22 @@ class RPNEvaluator {
                 } else {
                     stack.push(a)
                 }
+            } else if (token === 'eachreg') {
+                const args = storedExpression.split(/\s+/).filter(arg => arg !== '')
+                const regBaseName = args.shift()
+                const regStart = parseInt(args.shift())
+                const regEnd = parseInt(args.shift())
+                const initValue = parseFloat(args.shift())
+                const expression = args.join(' ')
+                let value = initValue
+                let prev = initValue
+                for (let i = regStart; i <= regEnd; i++) {
+                    value = Registers[`${regBaseName}${i}`]
+                    prev = RPNEvaluator.evaluate(expression, [prev, value])
+                }
+                value = prev
+                storedExpression = ''
+                stack.push(value)
             } else if (token === 'reset') {
                 for (const key in Registers) {
                     delete Registers[key]
@@ -233,6 +255,11 @@ class RPNEvaluator {
                 }
                 if (token === '{') {
                     stack.push(token)
+                    return
+                }
+
+                if (token === '|') {
+                    storing = !storing
                     return
                 }
 
@@ -338,6 +365,11 @@ class RPNEvaluator {
 export class AccountLines extends HTMLElement {
     constructor() {
         self = super()
+        this.dnd = {
+            node: null,
+            currentOver: null,
+            lastMousePos: null
+        }
         this.state = 'open'
         this.indexes = [
             0, // normal
@@ -516,6 +548,32 @@ export class AccountLines extends HTMLElement {
         if (!line.type) { line.type = 'item' }
         if (!line.state) { line.state = 'open' }
         const domNode = document.createElement('div')
+        if (line.state === 'open') {
+            domNode.setAttribute('draggable', true)
+            domNode.addEventListener('dragover', e => {
+                /* mouse difference allows to know if we move up or down, negative is up */
+                if (this.dnd.lastMousePos === null) {
+                    this.dnd.lastMousePos = e.clientY
+                }
+                const mouseDiff = e.clientY - this.dnd.lastMousePos
+                
+                this.dnd.lastMousePos = e.clientY
+                if (e.currentTarget.dataset.type !== this.dnd.node.dataset.type) { return }
+                e.preventDefault()
+                if (e.currentTarget === this.dnd.node) { return }
+                const box = e.currentTarget.firstElementChild.getBoundingClientRect()
+
+                this.dnd.node.remove()
+                /* move up we insert before, move down we insert after */
+                if (mouseDiff < 0) {
+                    e.currentTarget.parentNode.insertBefore(this.dnd.node, e.currentTarget)
+                } else {
+                    e.currentTarget.parentNode.insertBefore(this.dnd.node, e.currentTarget.nextElementSibling)
+                }
+                return
+            })
+        }
+
         if (line.id) {
             domNode.dataset.id = line.id
             domNode.id = line.id
@@ -586,7 +644,6 @@ export class AccountLines extends HTMLElement {
                 }
                 return newNode
             })();
-
             if (newNode.name === this.toDelete.name && line.type === 'suppression') {
                 newNode.dataset.expression = `${newNode.dataset.expression} negate`
                 if (domNode.dataset.relatedPosition) {
@@ -802,6 +859,25 @@ export class AccountLines extends HTMLElement {
         }
     }
 
+    renumber () {
+        this.indexes = [0, 0, 0]
+        for (let line = this.firstElementChild; line; line = line.nextElementSibling) {
+            if (line.classList.contains('account-line__head')) { continue }
+            let position = 0
+            let prePos = 1
+            switch(line.dataset.type) {
+                case 'item': position = ++this.indexes[0]; break
+                case 'addition': prePos = 2; position = ++this.indexes[1]; break
+                case 'suppression': prePos = 3; position = ++this.indexes[2]; break
+            }
+            line.dataset.position = `${prePos}.${String(position).padStart(4, '0')}`
+            line.querySelector('.account-line__position').innerText = line.dataset.position
+            if (line.dataset.relatedPosition) {
+                line.querySelector('.account-line__position').innerHTML += `<br><span class="relation">${line.dataset.relatedPosition}</span>`
+            }
+        }
+    }
+
     handleNewLineEvents (event) {
         const target = event.target
         let parent = target
@@ -865,6 +941,7 @@ export class AccountLines extends HTMLElement {
     }
 
     loadLines (lines) {
+        lines.sort((a, b) => parseFloat(a.position) * 1000 - parseFloat(b.position) * 1000)
         lines.forEach(line => {
             this.addLine(line)
         })
@@ -950,8 +1027,6 @@ export class AccountLines extends HTMLElement {
         textarea.focus()
     }
 
-
-
     connectedCallback() {
         const headNode = document.createElement('div')
         const state = this.getAttribute('state')
@@ -961,6 +1036,78 @@ export class AccountLines extends HTMLElement {
             this.state = state
         }
 
+        let autoscrollRun = false
+        const autoscroll = function (rate) {
+            const refreshRate = 80
+            if (rate === 0) { return }
+            if (!autoscrollRun) { return }
+            
+            window.scrollTo(0, document.documentElement.scrollTop + rate)
+            
+            setTimeout(() => { autoscroll(rate) }, refreshRate)
+        }
+
+        window.addEventListener('dragover', e => {
+            const fromEdge = 50
+
+            /* not OUR dragover, exit */
+            if (!this.dnd.pholder) { return }
+            
+            if (e.clientY < fromEdge) {
+                const rate = Math.pow(1 + (fromEdge - e.clientY) / fromEdge, 3)
+                autoscrollRun = true
+                return autoscroll(-rate)
+            } else if (e.clientY  > window.innerHeight - fromEdge) {
+                const rate = Math.pow(1 + (e.clientY - window.innerHeight + fromEdge ) / fromEdge, 3)
+                autoscrollRun = true
+                return autoscroll(rate)
+            }
+            autoscrollRun = false
+        })
+
+        this.addEventListener('dragstart', e => {
+            this.dnd.node = e.target
+
+            if (this.dnd.pholder) {
+                this.dnd.pholder.remove()
+            }
+            this.dnd.pholder = document.createElement('div')
+            this.dnd.pholder.classList.add('account-line__placeholder')
+
+            this.dnd.node.parentNode.insertBefore(this.dnd.pholder, this.dnd.node)
+
+            this.classList.add('dnd-in-progress')
+            this.dnd.node.classList.add('account-line__dragging')
+            e.dataTransfer.setData('text/plain', null)
+            e.dataTransfer.dropEffect = 'move'
+        })
+
+        this.addEventListener('dragend', e => {
+            autoscrollRun = false
+            this.dnd.lastMousePos = null
+            this.classList.remove('dnd-in-progress')
+            this.dnd.node.classList.remove('account-line__dragging')
+            if (e.dataTransfer.dropEffect === 'none') {
+                this.dnd.node.remove()
+                this.dnd.pholder.parentNode.replaceChild(this.dnd.node, this.dnd.pholder)
+                this.dnd.pholder = null
+            }
+            if (this.dnd.pholder) {
+                this.dnd.pholder.remove()
+            }
+            this.dnd.pholder = null
+            this.renumber()
+        })
+
+        this.addEventListener('drop', e => {
+            e.preventDefault()
+            if (this.dnd.pholder) {
+                this.dnd.pholder.remove()
+                this.dnd.pholder = null
+            }
+            this.dnd.node.classList.remove('account-line__dragging')
+            this.renumber()
+        })
         this.addEventListener('keyup', e => this.handleNewLineEvents(e))
         this.addEventListener('change', e => this.handleNewLineEvents(e))
         this.addEventListener('focus', e => {
