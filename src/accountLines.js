@@ -1,3 +1,4 @@
+import DND from './dnd.js'
 /* registers are global and can be used to store intermediate values 
  * special registers : 
  *   - INTERMEDIATE : store the intermediate value for some operation
@@ -549,19 +550,31 @@ export class AccountLines extends HTMLElement {
         if (!line.state) { line.state = 'open' }
         const domNode = document.createElement('div')
         if (line.state === 'open') {
-            domNode.setAttribute('draggable', true)
-            domNode.addEventListener('dragover', e => {
+            new DND(domNode)
+            domNode.addEventListener('dnd-start', e => {
+                this.dnd.node = e.target
+                this.dnd.nodeAfter = e.target.nextElementSibling
+                if (this.dnd.pholder) {
+                    this.dnd.pholder.remove()
+                }
+                this.dnd.pholder = document.createElement('div')
+                this.dnd.pholder.classList.add('account-line__placeholder')
+    
+                this.dnd.node.parentNode.insertBefore(this.dnd.pholder, this.dnd.node)
+    
+                this.classList.add('dnd-in-progress')
+                this.dnd.node.classList.add('account-line__dragging')
+            })
+            domNode.addEventListener('dnd-over', e => {
                 /* mouse difference allows to know if we move up or down, negative is up */
                 if (this.dnd.lastMousePos === null) {
-                    this.dnd.lastMousePos = e.clientY
+                    this.dnd.lastMousePos = e.detail.y
                 }
-                const mouseDiff = e.clientY - this.dnd.lastMousePos
+                const mouseDiff = e.detail.y - this.dnd.lastMousePos
                 
-                this.dnd.lastMousePos = e.clientY
+                this.dnd.lastMousePos = e.detail.y
                 if (e.currentTarget.dataset.type !== this.dnd.node.dataset.type) { return }
-                e.preventDefault()
                 if (e.currentTarget === this.dnd.node) { return }
-                const box = e.currentTarget.firstElementChild.getBoundingClientRect()
 
                 this.dnd.node.remove()
                 /* move up we insert before, move down we insert after */
@@ -1028,6 +1041,8 @@ export class AccountLines extends HTMLElement {
     }
 
     connectedCallback() {
+        this.autoscrollRun = false
+        this.dataset.dndDropzone = true
         const headNode = document.createElement('div')
         const state = this.getAttribute('state')
         this.precision = this.getAttribute('precision') === null ? null : parseInt(this.getAttribute('precision'))
@@ -1036,71 +1051,51 @@ export class AccountLines extends HTMLElement {
             this.state = state
         }
 
-        let autoscrollRun = false
-        const autoscroll = function (rate) {
+        const autoscroll = (rate) => {
             const refreshRate = 80
             if (rate === 0) { return }
-            if (!autoscrollRun) { return }
+            if (!this.autoscrollRun) { return }
             
             window.scrollTo(0, document.documentElement.scrollTop + rate)
             
             setTimeout(() => { autoscroll(rate) }, refreshRate)
         }
 
-        window.addEventListener('dragover', e => {
+        window.addEventListener('dnd-over', e => {
             const fromEdge = 50
 
             /* not OUR dragover, exit */
             if (!this.dnd.pholder) { return }
             
-            if (e.clientY < fromEdge) {
-                const rate = Math.pow(1 + (fromEdge - e.clientY) / fromEdge, 3)
-                autoscrollRun = true
+            if (e.detail.y < fromEdge) {
+                const rate = Math.pow(1 + (fromEdge - e.detail.y) / fromEdge, 3)
+                this.autoscrollRun = true
                 return autoscroll(-rate)
-            } else if (e.clientY  > window.innerHeight - fromEdge) {
-                const rate = Math.pow(1 + (e.clientY - window.innerHeight + fromEdge ) / fromEdge, 3)
-                autoscrollRun = true
+            } else if (e.detail.y  > window.innerHeight - fromEdge) {
+                const rate = Math.pow(1 + (e.detail.y- window.innerHeight + fromEdge ) / fromEdge, 3)
+                this.autoscrollRun = true
                 return autoscroll(rate)
             }
-            autoscrollRun = false
+            this.autoscrollRun = false
         })
 
-        this.addEventListener('dragstart', e => {
-            this.dnd.node = e.target
-
+        this.addEventListener('dnd-cancel', e => {
+            this.autoscrollRun = false
+            this.classList.remove('dnd-in-progress')
             if (this.dnd.pholder) {
                 this.dnd.pholder.remove()
-            }
-            this.dnd.pholder = document.createElement('div')
-            this.dnd.pholder.classList.add('account-line__placeholder')
-
-            this.dnd.node.parentNode.insertBefore(this.dnd.pholder, this.dnd.node)
-
-            this.classList.add('dnd-in-progress')
-            this.dnd.node.classList.add('account-line__dragging')
-            e.dataTransfer.setData('text/plain', null)
-            e.dataTransfer.dropEffect = 'move'
-        })
-
-        this.addEventListener('dragend', e => {
-            autoscrollRun = false
-            this.dnd.lastMousePos = null
-            this.classList.remove('dnd-in-progress')
-            this.dnd.node.classList.remove('account-line__dragging')
-            if (e.dataTransfer.dropEffect === 'none') {
-                this.dnd.node.remove()
-                this.dnd.pholder.parentNode.replaceChild(this.dnd.node, this.dnd.pholder)
                 this.dnd.pholder = null
             }
-            if (this.dnd.pholder) {
-                this.dnd.pholder.remove()
-            }
-            this.dnd.pholder = null
-            this.renumber()
+            this.dnd.node.classList.remove('account-line__dragging')
+            this.dnd.node.parentNode.insertBefore(this.dnd.node, this.dnd.nodeAfter)
         })
 
-        this.addEventListener('drop', e => {
-            e.preventDefault()
+        this.addEventListener('dnd-drop', e => {
+            this.autoscrollRun = false
+            this.classList.remove('dnd-in-progress')
+
+            this.dnd.node.classList.remove('account-line__dragging')
+
             if (this.dnd.pholder) {
                 this.dnd.pholder.remove()
                 this.dnd.pholder = null
