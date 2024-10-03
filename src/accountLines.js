@@ -541,6 +541,8 @@ export class AccountLines extends HTMLElement {
         if (node.dataset.expression) { newNode.dataset.expression = node.dataset.expression }
         newNode.setAttribute('tabindex', node.getAttribute('tabindex'))
         if (node.hasAttribute('mandatory')) { newNode.setAttribute('mandatory', true) }
+        newNode.dataset.noDnd = 'true' // set textarea to not allow DnD as user likely to select
+                                        // text for Ctrl-C/Ctrl-V
         return newNode
     }
 
@@ -695,6 +697,8 @@ export class AccountLines extends HTMLElement {
                 const installedTextaread = this.installTextarea(newNode, line.state === 'open')
                 if (node.hasAttribute('mandatory')) { installedTextaread.setAttribute('mandatory', true) }
                 if (node.getAttribute('readonly') === 'true') { installedTextaread.setAttribute('readonly', true) }
+                installedTextaread.dataset.noDnd = 'true' // set textarea to not allow DnD as user likely to select
+                                        // text for Ctrl-C/Ctrl-V
                 return
             }
             domNode.appendChild(newNode)

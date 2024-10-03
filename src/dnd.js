@@ -48,6 +48,12 @@ export default class DND {
         if (!node.dataset.dnd) {
             node.addEventListener('mousedown', event => {
                 if (globalThis.DNDStartTimeout) { return }
+                /* disable DnD if action is on a child node with data-no-dnd,
+                 * this is useful for parts where user can select text
+                 */
+                for (node = event.target; node !== event.currentTarget; node = node.parentNode) {
+                    if (node.dataset.noDnd === "true") { return }
+                }
                 const target = event.currentTarget
                 globalThis.DNDStartTimeout = setTimeout(() => {
                     this.start(target)
