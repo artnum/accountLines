@@ -839,18 +839,22 @@ export class AccountLines extends HTMLElement {
                 delete lineValue.id
             }
             const newLine = this._addLine(lineValue)
-            node.addEventListener('change', e => {
+            /*node.addEventListener('change', e => {
                 if (e.target.getAttribute('no-copy') !== null) { return }
                 newLine.querySelector(`[name="${e.target.name}"]`).value = e.target.value
             })
             node.addEventListener('delete', e => {
                 this.removeLine(newLine)
+            })*/
+            window.requestAnimationFrame(() => {
+                node.classList.add('deleted')
             })
             return 
         }
 
-        node.dispatchEvent(new CustomEvent('delete'))
+        //node.dispatchEvent(new CustomEvent('delete'))
         node.remove()
+        window.requestAnimationFrame(() => document.querySelector(`[data-position="${node.dataset.relatedPosition}"]`).classList.remove('deleted'))
         this.indexes[0] = 0
         this.indexes[1] = 0
         this.indexes[2] = 0
@@ -961,6 +965,7 @@ export class AccountLines extends HTMLElement {
         this.querySelectorAll('*[data-related]').forEach(node => {
             const relnode = this.querySelector('[id="' + node.dataset.related + '"]')
             node.dataset.relatedPosition = relnode.dataset.position
+            relnode.classList.add('deleted')
             node.querySelector('.account-line__position').innerHTML = `${node.dataset.position}<br><span class="relation">${relnode.dataset.position}</span>`
         })
     }
